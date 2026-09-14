@@ -25,7 +25,10 @@
   aspect-ratio: 2.39 / 1;
   background: #000;
   overflow: hidden;
-  /* El gesto vertical sigue siendo scroll de página, también en táctil. */
+  /*
+    El escenario recibe el mouse para inclinar la cámara. En táctil el JS
+    ignora el puntero. pan-y deja el scroll de página en manos del navegador.
+  */
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
@@ -41,8 +44,8 @@
 }
 
 /* --- Lienzo WebGL ----------------------------------------------------------
-   Cubre el escenario, no la página. pointer-events queda en el padre solo
-   cuando se añada el parallax; el lienzo no llama a preventDefault.
+   Cubre el escenario, no la página. pointer-events: none deja el mouse en
+   el padre y no tapa botones de Elementor superpuestos. No hay preventDefault.
    -------------------------------------------------------------------------- */
 
 .tm-hero__canvas {

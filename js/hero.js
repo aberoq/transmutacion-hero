@@ -1,15 +1,17 @@
 /* =============================================================================
    Transmutación Hero — versión mínima
    -----------------------------------------------------------------------------
-   Escena, cámara, renderer y un loop infinito de 6 stills.
-   Sin parallax, partículas, grain, viñeta, flicker ni gate weave.
+   Escena, cámara en perspectiva, loop infinito de 6 stills y parallax de mouse.
+   Sin partículas, grain, viñeta, flicker ni gate weave.
 
    Sistema de coordenadas (unidades de mundo):
    - El alto visible en el plano z = 0 es VISIBLE_HEIGHT.
    - X crece a la derecha. Las imágenes viajan hacia −X.
-   - Z positivo se acerca a la cámara. Las diferencias son sutiles.
-   - La cámara mira al origen con un FOV estrecho (perspectiva ligera,
-     no gran angular).
+   - Z positivo se acerca a la cámara. Cada still usa un valor entre
+     -1.2 (lejos) y +0.3 (cerca).
+   - La cámara es PerspectiveCamera con FOV estrecho: hay perspectiva,
+     no gran angular. En reposo mira al origen.
+   - El mouse inclina esa mirada como máximo 1°. En táctil no hay parallax.
 
    En WordPress, sustituir STILLS[].src por URLs absolutas de la mediateca.
    Las rutas relativas se resuelven respecto a este archivo.
@@ -26,8 +28,17 @@ const MAX_PIXEL_RATIO = 1.5;
 /** Alto del encuadre en unidades de mundo. El ancho sale de la proporción real. */
 const VISIBLE_HEIGHT = 10;
 
-/** FOV estrecho: perspectiva presente, sin distorsión de gran angular. */
+/**
+ * Perspectiva sutil. 28° deja leer la diferencia de Z sin deformar
+ * los bordes como lo haría un gran angular.
+ */
 const CAMERA_FOV = 28;
+
+/** Tope duro del parallax, en grados. El eje combinado no lo supera. */
+const MAX_PARALLAX_DEG = 1;
+
+/** Respuesta del seguimiento. Más bajo = más lento, más atmosférico. */
+const PARALLAX_RESPONSE = 1.35;
 
 /** Margen extra, en px, para empezar a cargar antes de entrar en vista. */
 const PRELOAD_MARGIN = "240px 0px";
