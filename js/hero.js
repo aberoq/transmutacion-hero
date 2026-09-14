@@ -24,6 +24,12 @@ const THREE_URL =
 /** Tope de devicePixelRatio. 1.5 basta para el movimiento y ahorra fill-rate. */
 const MAX_PIXEL_RATIO = 1.5;
 
+/** En mobile el fill-rate duele más: 1x es suficiente para el strip. */
+const MAX_PIXEL_RATIO_MOBILE = 1;
+
+/** Mismo corte que css/hero.css. */
+const COMPACT_QUERY = "(max-width: 640px)";
+
 /** Alto del encuadre en unidades de mundo. El ancho sale de la proporción real. */
 const VISIBLE_HEIGHT = 10;
 
@@ -108,6 +114,8 @@ const STILLS = [
 const LAYOUT = {
   /** Alto del still respecto al alto visible. Deja margen negro arriba y abajo. */
   planeHeightRatio: 0.74,
+  /** En la banda 2.39:1 de mobile, más alto = stills más grandes. */
+  mobilePlaneHeightRatio: 0.92,
   /** ~2:1. Coincide con los covers cinematográficos (1024×516). */
   planeAspect: 1024 / 516,
   /** Separación entre stills, como fracción del ancho de cada plano. */
@@ -165,8 +173,13 @@ let debugGui = null;
 // --- Estado compartido del arranque -----------------------------------------
 
 const motionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+const compactQuery = window.matchMedia(COMPACT_QUERY);
 let reducedMotion = motionQuery.matches;
 const instances = new Set();
+
+function isCompact() {
+  return compactQuery.matches;
+}
 
 function onMotionPreferenceChange(event) {
   reducedMotion = event.matches;
@@ -184,6 +197,20 @@ if (motionQuery.addEventListener) {
   motionQuery.addEventListener("change", onMotionPreferenceChange);
 } else if (motionQuery.addListener) {
   motionQuery.addListener(onMotionPreferenceChange);
+}
+
+function onCompactChange() {
+  instances.forEach((instance) => {
+    if (instance.disposed || !instance.renderer) return;
+    resize(instance);
+    if (!instance.running) renderFrame(instance);
+  });
+}
+
+if (compactQuery.addEventListener) {
+  compactQuery.addEventListener("change", onCompactChange);
+} else if (compactQuery.addListener) {
+  compactQuery.addListener(onCompactChange);
 }
 
 let elementorHooked = false;
@@ -349,25 +376,20 @@ function createScene(instance, THREE) {
   renderer.domElement.setAttribute("aria-hidden", "true");
   frame.appendChild(renderer.domElement);
 
-  const planeHeight = VISIBLE_HEIGHT * LAYOUT.planeHeightRatio;
-  const planeWidth = planeHeight * LAYOUT.planeAspect;
-  const gap = planeWidth * LAYOUT.gapRatio;
-  const slot = planeWidth + gap;
-
   instance.THREE = THREE;
   instance.scene = scene;
   instance.camera = camera;
   instance.cameraZ = cameraZ;
   instance.renderer = renderer;
   instance.planes = [];
-  instance.slot = slot;
-  instance.planeWidth = planeWidth;
   instance.scroll = 0;
   instance.running = false;
   instance.rafId = 0;
   instance.lastTime = 0;
+  instance.hoverActive = false;
   instance.raycaster = new THREE.Raycaster();
   instance.pointerVec = new THREE.Vector2();
+  applyLayout(instance);
   resetParallax(instance);
   resetProjectionFx(instance);
   bindPointer(instance);
@@ -393,7 +415,7 @@ function createScene(instance, THREE) {
       textures.forEach((texture) => texture.dispose());
       return;
     }
-    buildPlanes(instance, textures, planeWidth, planeHeight);
+    buildPlanes(instance, textures);
     layoutPlanes(instance);
     applyBeamOpacity(instance);
     applyGrainOpacity(instance);
@@ -416,7 +438,39 @@ function distanceForVisibleHeight(height, fovDeg) {
 
 function pixelRatio() {
   const dpr = window.devicePixelRatio || 1;
-  return Math.min(dpr, MAX_PIXEL_RATIO);
+  const cap = isCompact() ? MAX_PIXEL_RATIO_MOBILE : MAX_PIXEL_RATIO;
+  return Math.min(dpr, cap);
+}
+
+function layoutMetrics() {
+  const ratio = isCompact() ? LAYOUT.mobilePlaneHeightRatio : LAYOUT.planeHeightRatio;
+  const planeHeight = VISIBLE_HEIGHT * ratio;
+  const planeWidth = planeHeight * LAYOUT.planeAspect;
+  const slot = planeWidth * (1 + LAYOUT.gapRatio);
+  return { planeHeight, planeWidth, slot };
+}
+
+function applyLayout(instance) {
+  const metrics = layoutMetrics();
+  const widthChanged = instance.planeWidth !== metrics.planeWidth;
+  const heightChanged = instance.planeHeight !== metrics.planeHeight;
+  instance.planeWidth = metrics.planeWidth;
+  instance.planeHeight = metrics.planeHeight;
+  instance.slot = metrics.slot;
+
+  const { THREE } = instance;
+  if (!THREE || (!widthChanged && !heightChanged && instance.geometry)) return;
+
+  const geometry = new THREE.PlaneGeometry(metrics.planeWidth, metrics.planeHeight);
+  if (instance.planes) {
+    instance.planes.forEach((mesh) => {
+      mesh.geometry = geometry;
+    });
+  }
+  if (instance.geometry && instance.geometry !== geometry) {
+    instance.geometry.dispose();
+  }
+  instance.geometry = geometry;
 }
 
 function resize(instance) {
@@ -431,6 +485,11 @@ function resize(instance) {
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(pixelRatio());
   renderer.setSize(width, height, false);
+  applyLayout(instance);
+  syncDust(instance);
+  if (instance.planes && instance.planes.length) {
+    layoutPlanes(instance);
+  }
 }
 
 // --- Carga de imágenes (lazy) -----------------------------------------------
@@ -536,9 +595,10 @@ function createGeneratedTexture(THREE, index, anisotropy) {
 
 // --- Planos ------------------------------------------------------------------
 
-function buildPlanes(instance, textures, planeWidth, planeHeight) {
-  const { THREE, scene } = instance;
-  const geometry = new THREE.PlaneGeometry(planeWidth, planeHeight);
+function buildPlanes(instance, textures) {
+  const { THREE, scene, planeWidth, planeHeight } = instance;
+  const geometry =
+    instance.geometry || new THREE.PlaneGeometry(planeWidth, planeHeight);
 
   textures.forEach((texture, index) => {
     const material = new THREE.MeshBasicMaterial({
@@ -614,14 +674,11 @@ function buildProjection(instance) {
   beamB.rotation.set(0.12, -0.28, 0.05);
   scene.add(beamB);
 
-  const dust = createDust(instance);
-  scene.add(dust);
-
   instance.beamTexture = beamTexture;
   instance.beamGeometry = beamGeometry;
   instance.beamMaterials = [beamA.material, beamB.material];
   instance.beams = [beamA, beamB];
-  instance.dust = dust;
+  syncDust(instance);
 }
 
 function createBeamCanvas() {
@@ -775,6 +832,20 @@ function applyWeaveAmount(amount) {
   PROJECTION.weaveRot = WEAVE_BASE.rot * scale;
 }
 
+function syncDust(instance) {
+  if (!instance.scene || !instance.THREE) return;
+
+  if (isCompact()) {
+    disposeDust(instance);
+    return;
+  }
+
+  if (instance.dust) return;
+  const dust = createDust(instance);
+  instance.scene.add(dust);
+  instance.dust = dust;
+}
+
 function rebuildDust(instance, count) {
   if (!instance.scene || !instance.THREE) return;
 
@@ -912,9 +983,12 @@ function bindPointer(instance) {
 
   const onPointerMove = (event) => {
     if (instance.disposed) return;
+    if (event.pointerType !== "mouse") return;
     if (!recordPointer(instance, event)) return;
 
-    if (!reducedMotion && event.pointerType === "mouse") {
+    instance.hoverActive = true;
+
+    if (!reducedMotion && !isCompact()) {
       const angles = pointerToAngles(
         Math.max(-1, Math.min(1, instance.pointerNdc.x)),
         Math.max(-1, Math.min(1, -instance.pointerNdc.y))
@@ -934,6 +1008,8 @@ function bindPointer(instance) {
     if (instance.disposed) return;
     if (isTitleTarget(event)) return;
     if (!recordPointer(instance, event)) return;
+
+    if (event.pointerType === "mouse") instance.hoverActive = true;
 
     instance.pointerDown = {
       x: event.clientX,
@@ -989,6 +1065,7 @@ function bindPointer(instance) {
 
   const onPointerLeave = () => {
     instance.pointerInside = false;
+    instance.hoverActive = false;
     instance.pointerDown = null;
     instance.targetYaw = 0;
     instance.targetPitch = 0;
@@ -1003,6 +1080,7 @@ function bindPointer(instance) {
   const onPointerCancel = () => {
     instance.pointerDown = null;
     instance.pointerInside = false;
+    instance.hoverActive = false;
     instance.targetYaw = 0;
     instance.targetPitch = 0;
     instance.hoverIndex = -1;
@@ -1043,7 +1121,7 @@ function pointerToAngles(nx, ny) {
 }
 
 function updateParallax(instance, dt) {
-  if (reducedMotion) {
+  if (reducedMotion || isCompact()) {
     resetParallax(instance);
     return;
   }
@@ -1209,10 +1287,10 @@ function setFocus(instance, index) {
 }
 
 function updateFocus(instance, dt) {
-  if (instance.pointerInside && instance.stickyIndex < 0) {
-    refreshHover(instance);
-  } else if (instance.stickyIndex >= 0) {
+  if (instance.stickyIndex >= 0) {
     setFocus(instance, instance.stickyIndex);
+  } else if (instance.hoverActive) {
+    refreshHover(instance);
   }
 
   const { planes } = instance;
