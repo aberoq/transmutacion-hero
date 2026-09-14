@@ -45,57 +45,33 @@ const PRELOAD_MARGIN = "240px 0px";
 const STILLS = [
   {
     src: "../assets/stills/01-vli.webp",
-    alt: "Once in a full moon",
+    alt: "Still de proyección, caverna violeta y figura en barca",
     depth: -1.2,
-    title: "Once in a full moon",
-    director: "Bande James Bond",
-    country: "Bélgica",
-    year: "2026",
   },
   {
     src: "../assets/stills/02-fep.webp",
-    alt: "Cat on my mind",
+    alt: "Still de proyección, retrato en blanco y negro",
     depth: -0.35,
-    title: "Cat on my mind",
-    director: "Laila Pakalniņa",
-    country: "Lituania",
-    year: "2026",
   },
   {
     src: "../assets/stills/03-pndr.jpg",
-    alt: "Ponderosa",
+    alt: "Still de proyección, retrato contra cielo azul",
     depth: 0.08,
-    title: "Ponderosa",
-    director: "Rob Rice",
-    country: "EE. UU.",
-    year: "2026",
   },
   {
     src: "../assets/stills/04-chr.jpg",
-    alt: "Chronovisor",
+    alt: "Still de proyección, figura bajo lámpara en biblioteca",
     depth: 0.3,
-    title: "Chronovisor",
-    director: "Jack Auen, Kevin Walker",
-    country: "EE. UU.",
-    year: "2026",
   },
   {
     src: "../assets/stills/05-kb.jpg",
-    alt: "Kobe",
+    alt: "Still de proyección, dos figuras con helados al anochecer",
     depth: -0.15,
-    title: "Kobe",
-    director: "Vicente Monarque",
-    country: "México",
-    year: "2026",
   },
   {
     src: "../assets/stills/06-tpos.jpg",
-    alt: "The price of the sun",
+    alt: "Still de proyección, figura entre un rebaño",
     depth: -0.75,
-    title: "The price of the sun",
-    director: "Jérôme le Maire",
-    country: "Bélgica, Francia, Marruecos",
-    year: "2026",
   },
 ];
 
@@ -139,9 +115,9 @@ const PROJECTION = {
   TEMPORAL — panel lil-gui para calibrar la proyección.
   Quitar ENABLE_DEBUG_GUI y el bloque mountDebugGui antes de la versión final.
 */
-const ENABLE_DEBUG_GUI = false;
+const ENABLE_DEBUG_GUI = true;
 const LIL_GUI_URL = "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/+esm";
-const WEAVE_BASE = { x: 1.94, y: 1.6415, rot: 0.0597 };
+const WEAVE_BASE = { x: 0.65, y: 0.55, rot: 0.02 };
 
 let debugGui = null;
 
@@ -209,9 +185,6 @@ function mount(root) {
   const frame = root.querySelector("[data-tm-frame]") || stage;
   const fallback = root.querySelector(".tm-hero__fallback");
   const grain = root.querySelector("[data-tm-grain]");
-  const caption = root.querySelector("[data-tm-caption]");
-  const titleEl = root.querySelector("[data-tm-title]");
-  const metaEl = root.querySelector("[data-tm-meta]");
   if (!stage || !fallback) return;
 
   const instance = {
@@ -220,12 +193,6 @@ function mount(root) {
     frame,
     fallback,
     grain,
-    caption,
-    titleEl,
-    metaEl,
-    captionIndex: -1,
-    captionPending: -1,
-    captionTimer: 0,
     disposed: false,
     started: false,
     visible: false,
@@ -375,7 +342,6 @@ function createScene(instance, THREE) {
     applyGrainOpacity(instance);
     renderFrame(instance);
     applyProjectionFx(instance);
-    syncCaption(instance, true);
     instance.root.classList.add("is-ready");
     syncLoop(instance);
     if (ENABLE_DEBUG_GUI) mountDebugGui(instance);
@@ -841,11 +807,11 @@ async function mountDebugGui(instance) {
     .add(
       {
         reset() {
-          params.beamOpacity = 0.365;
+          params.beamOpacity = 0.14;
           params.flickerRange = 0.904;
           params.weaveAmount = WEAVE_BASE.x;
-          params.grainOpacity = 0.185;
-          params.particleCount = 380;
+          params.grainOpacity = 0.12;
+          params.particleCount = 96;
           PROJECTION.beamOpacity = params.beamOpacity;
           PROJECTION.flickerMin = params.flickerRange;
           applyWeaveAmount(params.weaveAmount);
@@ -1046,134 +1012,6 @@ function applyProjectionFx(instance) {
   frame.style.transform = `translate3d(${x.toFixed(3)}px, ${y.toFixed(3)}px, 0) rotate(${rot.toFixed(4)}deg)`;
 }
 
-const CAPTION = {
-  /** Delay al entrar en la zona central, antes del fade-in. */
-  showDelayMs: 280,
-  /** Margen lateral de la zona: 4% del ancho visible del stage, a cada lado. */
-  sideMarginRatio: 0.04,
-};
-
-// --- Caption / metadata pasiva ----------------------------------------------
-
-/**
- * Still activo solo si su centro está dentro de la caja central:
- * halfStill + 4% del ancho visible a cada lado.
- */
-function activeStillIndex(instance) {
-  const { planes, planeWidth, camera } = instance;
-  if (!planes || !planes.length || !planeWidth || !camera) return -1;
-
-  const viewWidth = VISIBLE_HEIGHT * camera.aspect;
-  const halfZone = planeWidth / 2 + viewWidth * CAPTION.sideMarginRatio;
-
-  let best = -1;
-  let bestDist = Infinity;
-  for (let i = 0; i < planes.length; i += 1) {
-    const dist = Math.abs(planes[i].position.x);
-    if (dist <= halfZone && dist < bestDist) {
-      bestDist = dist;
-      best = i;
-    }
-  }
-  return best;
-}
-
-function formatMeta(still) {
-  return [still.director, still.country, still.year].filter(Boolean).join(" · ");
-}
-
-function writeCaption(instance, index) {
-  const still = STILLS[index];
-  if (!still || !instance.titleEl || !instance.metaEl) return;
-  instance.titleEl.textContent = still.title || "";
-  instance.metaEl.textContent = formatMeta(still);
-  instance.captionIndex = index;
-}
-
-function clearCaptionTimer(instance) {
-  if (!instance.captionTimer) return;
-  clearTimeout(instance.captionTimer);
-  instance.captionTimer = 0;
-}
-
-function hideCaption(instance) {
-  clearCaptionTimer(instance);
-  instance.caption?.classList.remove("is-visible");
-  instance.captionIndex = -1;
-  instance.captionPending = -1;
-}
-
-function showCaptionNow(instance, index) {
-  clearCaptionTimer(instance);
-  writeCaption(instance, index);
-  instance.captionPending = -1;
-  instance.caption?.classList.add("is-visible");
-}
-
-/**
- * Caption solo dentro de la zona central.
- * Entrada: delay corto → fade-in.
- * Salida: hide inmediato (cancela show pendiente).
- */
-function syncCaption(instance, immediate) {
-  const { caption, planes } = instance;
-  if (!caption || !planes || !planes.length) return;
-
-  const index = activeStillIndex(instance);
-
-  if (index < 0) {
-    if (
-      instance.captionIndex >= 0 ||
-      instance.captionPending >= 0 ||
-      caption.classList.contains("is-visible")
-    ) {
-      hideCaption(instance);
-    }
-    return;
-  }
-
-  if (immediate || reducedMotion) {
-    showCaptionNow(instance, index);
-    return;
-  }
-
-  /* Mismo still ya visible: nada que hacer. */
-  if (index === instance.captionIndex && caption.classList.contains("is-visible")) {
-    clearCaptionTimer(instance);
-    instance.captionPending = -1;
-    return;
-  }
-
-  /* Ya hay un show pendiente para este still. */
-  if (index === instance.captionPending && instance.captionTimer) {
-    return;
-  }
-
-  /* Salir del still anterior y programar entrada del nuevo. */
-  clearCaptionTimer(instance);
-  caption.classList.remove("is-visible");
-  instance.captionIndex = -1;
-  instance.captionPending = index;
-
-  instance.captionTimer = window.setTimeout(() => {
-    instance.captionTimer = 0;
-    if (instance.disposed) return;
-
-    const current = activeStillIndex(instance);
-    if (current !== instance.captionPending) {
-      instance.captionPending = -1;
-      if (current >= 0) {
-        syncCaption(instance, false);
-      } else {
-        hideCaption(instance);
-      }
-      return;
-    }
-
-    showCaptionNow(instance, current);
-  }, CAPTION.showDelayMs);
-}
-
 // --- Bucle de animación -----------------------------------------------------
 
 function syncLoop(instance) {
@@ -1193,7 +1031,6 @@ function syncLoop(instance) {
   if (reducedMotion && instance.visible && instance.root.isConnected) {
     renderFrame(instance);
     applyProjectionFx(instance);
-    syncCaption(instance, true);
   }
 }
 
@@ -1227,7 +1064,6 @@ function tick(instance, now) {
   updateParallax(instance, dt);
   updateDust(instance, dt, now);
   updateProjectionFx(instance, dt);
-  syncCaption(instance, false);
 
   renderFrame(instance);
   instance.rafId = requestAnimationFrame((time) => tick(instance, time));
@@ -1284,10 +1120,6 @@ function dispose(instance) {
     document.removeEventListener("visibilitychange", instance.onVisibilityChange);
   }
   if (instance.unbindParallax) instance.unbindParallax();
-  if (instance.captionTimer) {
-    clearTimeout(instance.captionTimer);
-    instance.captionTimer = 0;
-  }
 
   if (instance.planes) {
     instance.planes.forEach((mesh) => {
