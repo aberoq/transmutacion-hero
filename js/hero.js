@@ -3,7 +3,7 @@
    -----------------------------------------------------------------------------
    Carrusel infinito de stills + cámara en perspectiva con depth y parallax
    + capa de proyección (haz volumétrico, polvo, grain, vignette, flicker,
-   gate weave).
+   gate weave) + foco hover/tap (escala, dim, caption, link a ficha).
 
    Sistema de coordenadas (unidades de mundo):
    - El alto visible en el plano z = 0 es VISIBLE_HEIGHT.
@@ -45,33 +45,63 @@ const PRELOAD_MARGIN = "240px 0px";
 const STILLS = [
   {
     src: "../assets/stills/01-vli.webp",
-    alt: "Still de proyección, caverna violeta y figura en barca",
+    alt: "Once in a full moon",
     depth: -1.2,
+    title: "Once in a full moon",
+    director: "Bande James Bond",
+    country: "Bélgica",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/once-in-a-full-moon/",
   },
   {
     src: "../assets/stills/02-fep.webp",
-    alt: "Still de proyección, retrato en blanco y negro",
+    alt: "Cat on my mind",
     depth: -0.35,
+    title: "Cat on my mind",
+    director: "Laila Pakalniņa",
+    country: "Lituania",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/cat-on-my-mind/",
   },
   {
     src: "../assets/stills/03-pndr.jpg",
-    alt: "Still de proyección, retrato contra cielo azul",
+    alt: "Ponderosa",
     depth: 0.08,
+    title: "Ponderosa",
+    director: "Rob Rice",
+    country: "EE. UU.",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/ponderosa/",
   },
   {
     src: "../assets/stills/04-chr.jpg",
-    alt: "Still de proyección, figura bajo lámpara en biblioteca",
+    alt: "Chronovisor",
     depth: 0.3,
+    title: "Chronovisor",
+    director: "Jack Auen, Kevin Walker",
+    country: "EE. UU.",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/chronovisor/",
   },
   {
     src: "../assets/stills/05-kb.jpg",
-    alt: "Still de proyección, dos figuras con helados al anochecer",
+    alt: "Kobe",
     depth: -0.15,
+    title: "Kobe",
+    director: "Vicente Monarque",
+    country: "México",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/kobe/",
   },
   {
     src: "../assets/stills/06-tpos.jpg",
-    alt: "Still de proyección, figura entre un rebaño",
+    alt: "The price of the sun",
     depth: -0.75,
+    title: "The price of the sun",
+    director: "Jérôme le Maire",
+    country: "Bélgica, Francia, Marruecos",
+    year: "2026",
+    href: "https://transmutacioncine.com/peliculas/the-price-of-the-sun/",
   },
 ];
 
@@ -87,6 +117,17 @@ const LAYOUT = {
    * Con el encuadre actual, un still tarda unos 20 s en ceder su lugar al siguiente.
    */
   speed: 0.62,
+};
+
+const FOCUS = {
+  /** Escala del still con foco. Sutil, no un zoom de lightbox. */
+  scale: 1.045,
+  /** Opacity de los stills sin foco. */
+  dimOpacity: 0.62,
+  /** Velocidad del lerp de escala/opacidad. */
+  response: 8,
+  /** Movimiento máximo (px) para contar el gesto como tap/click, no scroll. */
+  tapSlopPx: 12,
 };
 
 const PROJECTION = {
@@ -115,9 +156,9 @@ const PROJECTION = {
   TEMPORAL — panel lil-gui para calibrar la proyección.
   Quitar ENABLE_DEBUG_GUI y el bloque mountDebugGui antes de la versión final.
 */
-const ENABLE_DEBUG_GUI = true;
+const ENABLE_DEBUG_GUI = false;
 const LIL_GUI_URL = "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/+esm";
-const WEAVE_BASE = { x: 0.65, y: 0.55, rot: 0.02 };
+const WEAVE_BASE = { x: 1.94, y: 1.6415, rot: 0.0597 };
 
 let debugGui = null;
 
@@ -134,6 +175,7 @@ function onMotionPreferenceChange(event) {
       resetParallax(instance);
       resetProjectionFx(instance);
     }
+    updateFocus(instance, 0);
     syncLoop(instance);
   });
 }
@@ -185,6 +227,9 @@ function mount(root) {
   const frame = root.querySelector("[data-tm-frame]") || stage;
   const fallback = root.querySelector(".tm-hero__fallback");
   const grain = root.querySelector("[data-tm-grain]");
+  const caption = root.querySelector("[data-tm-caption]");
+  const titleEl = root.querySelector("[data-tm-title]");
+  const metaEl = root.querySelector("[data-tm-meta]");
   if (!stage || !fallback) return;
 
   const instance = {
@@ -193,6 +238,16 @@ function mount(root) {
     frame,
     fallback,
     grain,
+    caption,
+    titleEl,
+    metaEl,
+    captionIndex: -1,
+    hoverIndex: -1,
+    stickyIndex: -1,
+    focusIndex: -1,
+    pointerInside: false,
+    pointerNdc: { x: 0, y: 0 },
+    pointerDown: null,
     disposed: false,
     started: false,
     visible: false,
@@ -306,13 +361,16 @@ function createScene(instance, THREE) {
   instance.renderer = renderer;
   instance.planes = [];
   instance.slot = slot;
+  instance.planeWidth = planeWidth;
   instance.scroll = 0;
   instance.running = false;
   instance.rafId = 0;
   instance.lastTime = 0;
+  instance.raycaster = new THREE.Raycaster();
+  instance.pointerVec = new THREE.Vector2();
   resetParallax(instance);
   resetProjectionFx(instance);
-  bindParallax(instance);
+  bindPointer(instance);
   buildProjection(instance);
 
   resize(instance);
@@ -486,10 +544,13 @@ function buildPlanes(instance, textures, planeWidth, planeHeight) {
     const material = new THREE.MeshBasicMaterial({
       map: texture,
       toneMapped: false,
+      transparent: true,
+      opacity: 1,
     });
     const mesh = new THREE.Mesh(geometry, material);
     mesh.position.z = STILLS[index].depth;
     mesh.userData.depth = STILLS[index].depth;
+    mesh.userData.index = index;
     scene.add(mesh);
     instance.planes.push(mesh);
   });
@@ -806,11 +867,11 @@ async function mountDebugGui(instance) {
     .add(
       {
         reset() {
-          params.beamOpacity = 0.14;
+          params.beamOpacity = 0.365;
           params.flickerRange = 0.904;
           params.weaveAmount = WEAVE_BASE.x;
-          params.grainOpacity = 0.12;
-          params.particleCount = 96;
+          params.grainOpacity = 0.185;
+          params.particleCount = 380;
           PROJECTION.beamOpacity = params.beamOpacity;
           PROJECTION.flickerMin = params.flickerRange;
           applyWeaveAmount(params.weaveAmount);
@@ -828,40 +889,137 @@ async function mountDebugGui(instance) {
     .name("reset defaults");
 }
 
-// --- Parallax de mouse ------------------------------------------------------
+// --- Pointer: parallax + foco hover/tap -------------------------------------
 
-function bindParallax(instance) {
+function isTitleTarget(event) {
+  return Boolean(event.target && event.target.closest && event.target.closest("[data-tm-title]"));
+}
+
+function recordPointer(instance, event) {
+  const rect = instance.stage.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2) return false;
+
+  instance.pointerInside = true;
+  instance.pointerNdc = {
+    x: ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    y: -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  };
+  return true;
+}
+
+function bindPointer(instance) {
   const { stage } = instance;
 
   const onPointerMove = (event) => {
-    if (instance.disposed || reducedMotion || event.pointerType !== "mouse") return;
+    if (instance.disposed) return;
+    if (!recordPointer(instance, event)) return;
 
-    const rect = stage.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return;
+    if (!reducedMotion && event.pointerType === "mouse") {
+      const angles = pointerToAngles(
+        Math.max(-1, Math.min(1, instance.pointerNdc.x)),
+        Math.max(-1, Math.min(1, -instance.pointerNdc.y))
+      );
+      instance.targetYaw = angles.yaw;
+      instance.targetPitch = angles.pitch;
+    }
 
-    const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const ny = ((event.clientY - rect.top) / rect.height) * 2 - 1;
-    const angles = pointerToAngles(
-      Math.max(-1, Math.min(1, nx)),
-      Math.max(-1, Math.min(1, ny))
-    );
-    instance.targetYaw = angles.yaw;
-    instance.targetPitch = angles.pitch;
+    if (!instance.running) {
+      refreshHover(instance);
+      updateFocus(instance, 0);
+      renderFrame(instance);
+    }
   };
 
-  const release = () => {
+  const onPointerDown = (event) => {
+    if (instance.disposed) return;
+    if (isTitleTarget(event)) return;
+    if (!recordPointer(instance, event)) return;
+
+    instance.pointerDown = {
+      x: event.clientX,
+      y: event.clientY,
+      pointerType: event.pointerType,
+    };
+  };
+
+  const onPointerUp = (event) => {
+    if (instance.disposed) return;
+
+    const down = instance.pointerDown;
+    instance.pointerDown = null;
+
+    if (isTitleTarget(event)) return;
+    if (!down) return;
+
+    const moved = Math.hypot(event.clientX - down.x, event.clientY - down.y);
+    if (moved > FOCUS.tapSlopPx) return;
+    if (!recordPointer(instance, event)) return;
+
+    const hit = hitStillIndex(instance);
+    const isMouse = down.pointerType === "mouse" || event.pointerType === "mouse";
+
+    if (isMouse) {
+      if (hit >= 0) navigateStill(hit, event);
+      return;
+    }
+
+    if (hit < 0) {
+      instance.stickyIndex = -1;
+      instance.hoverIndex = -1;
+      setFocus(instance, -1);
+      if (!instance.running) {
+        updateFocus(instance, 0);
+        renderFrame(instance);
+      }
+      return;
+    }
+
+    if (hit === instance.stickyIndex) {
+      navigateStill(hit, event);
+      return;
+    }
+
+    instance.stickyIndex = hit;
+    setFocus(instance, hit);
+    if (!instance.running) {
+      updateFocus(instance, 0);
+      renderFrame(instance);
+    }
+  };
+
+  const onPointerLeave = () => {
+    instance.pointerInside = false;
+    instance.pointerDown = null;
     instance.targetYaw = 0;
     instance.targetPitch = 0;
+    instance.hoverIndex = -1;
+    if (instance.stickyIndex < 0) setFocus(instance, -1);
+    if (!instance.running) {
+      updateFocus(instance, 0);
+      renderFrame(instance);
+    }
+  };
+
+  const onPointerCancel = () => {
+    instance.pointerDown = null;
+    instance.pointerInside = false;
+    instance.targetYaw = 0;
+    instance.targetPitch = 0;
+    instance.hoverIndex = -1;
   };
 
   stage.addEventListener("pointermove", onPointerMove, { passive: true });
-  stage.addEventListener("pointerleave", release);
-  stage.addEventListener("pointercancel", release);
+  stage.addEventListener("pointerdown", onPointerDown, { passive: true });
+  stage.addEventListener("pointerup", onPointerUp, { passive: true });
+  stage.addEventListener("pointerleave", onPointerLeave);
+  stage.addEventListener("pointercancel", onPointerCancel);
 
   instance.unbindParallax = () => {
     stage.removeEventListener("pointermove", onPointerMove);
-    stage.removeEventListener("pointerleave", release);
-    stage.removeEventListener("pointercancel", release);
+    stage.removeEventListener("pointerdown", onPointerDown);
+    stage.removeEventListener("pointerup", onPointerUp);
+    stage.removeEventListener("pointerleave", onPointerLeave);
+    stage.removeEventListener("pointercancel", onPointerCancel);
   };
 }
 
@@ -1011,6 +1169,114 @@ function applyProjectionFx(instance) {
   frame.style.transform = `translate3d(${x.toFixed(3)}px, ${y.toFixed(3)}px, 0) rotate(${rot.toFixed(4)}deg)`;
 }
 
+function hitStillIndex(instance) {
+  const { camera, planes, raycaster, pointerVec, pointerNdc } = instance;
+  if (!camera || !raycaster || !pointerVec || !planes || !planes.length) return -1;
+  if (!instance.pointerInside) return -1;
+
+  applyCamera(instance);
+  pointerVec.set(pointerNdc.x, pointerNdc.y);
+  raycaster.setFromCamera(pointerVec, camera);
+  const hits = raycaster.intersectObjects(planes, false);
+  if (!hits.length) return -1;
+  const index = instance.planes.indexOf(hits[0].object);
+  return index;
+}
+
+function refreshHover(instance) {
+  if (instance.stickyIndex >= 0) {
+    setFocus(instance, instance.stickyIndex);
+    return;
+  }
+  const hit = hitStillIndex(instance);
+  instance.hoverIndex = hit;
+  setFocus(instance, hit);
+}
+
+function setFocus(instance, index) {
+  const next = index == null ? -1 : index;
+  instance.root.classList.toggle("is-hot", next >= 0);
+
+  if (next === instance.focusIndex) return;
+  instance.focusIndex = next;
+
+  if (next < 0) {
+    hideCaption(instance);
+    return;
+  }
+
+  showCaption(instance, next);
+}
+
+function updateFocus(instance, dt) {
+  if (instance.pointerInside && instance.stickyIndex < 0) {
+    refreshHover(instance);
+  } else if (instance.stickyIndex >= 0) {
+    setFocus(instance, instance.stickyIndex);
+  }
+
+  const { planes } = instance;
+  if (!planes || !planes.length) return;
+
+  const focus = instance.focusIndex;
+  const snap = reducedMotion || dt <= 0;
+  const blend = snap ? 1 : 1 - Math.exp(-FOCUS.response * dt);
+
+  for (let i = 0; i < planes.length; i += 1) {
+    const mesh = planes[i];
+    const active = focus >= 0 && i === focus;
+    const targetScale = focus < 0 ? 1 : active ? FOCUS.scale : 1;
+    const targetOpacity = focus < 0 ? 1 : active ? 1 : FOCUS.dimOpacity;
+    const scale = mesh.scale.x + (targetScale - mesh.scale.x) * blend;
+    mesh.scale.setScalar(scale);
+    mesh.material.opacity += (targetOpacity - mesh.material.opacity) * blend;
+  }
+}
+
+function navigateStill(index, event) {
+  const url = STILLS[index] && STILLS[index].href;
+  if (!url) return;
+
+  const newTab = Boolean(event.metaKey || event.ctrlKey || event.button === 1);
+  if (newTab) {
+    window.open(url, "_blank", "noopener");
+    return;
+  }
+
+  window.location.assign(url);
+}
+
+// --- Caption / metadata de foco ---------------------------------------------
+
+function formatMeta(still) {
+  return [still.director, still.country, still.year].filter(Boolean).join(" · ");
+}
+
+function writeCaption(instance, index) {
+  const still = STILLS[index];
+  if (!still || !instance.titleEl || !instance.metaEl) return;
+
+  instance.titleEl.textContent = still.title || "";
+  if (still.href) {
+    instance.titleEl.setAttribute("href", still.href);
+  } else {
+    instance.titleEl.removeAttribute("href");
+  }
+  instance.metaEl.textContent = formatMeta(still);
+  instance.captionIndex = index;
+}
+
+function hideCaption(instance) {
+  instance.caption?.classList.remove("is-visible");
+  instance.captionIndex = -1;
+  if (instance.titleEl) instance.titleEl.removeAttribute("href");
+}
+
+function showCaption(instance, index) {
+  writeCaption(instance, index);
+  instance.caption?.classList.add("is-visible");
+}
+
 // --- Bucle de animación -----------------------------------------------------
 
 function syncLoop(instance) {
@@ -1028,6 +1294,7 @@ function syncLoop(instance) {
 
   /* Fuera de vista no se dibuja: el rAF ya está cancelado. */
   if (reducedMotion && instance.visible && instance.root.isConnected) {
+    updateFocus(instance, 0);
     renderFrame(instance);
     applyProjectionFx(instance);
   }
@@ -1063,6 +1330,7 @@ function tick(instance, now) {
   updateParallax(instance, dt);
   updateDust(instance, dt, now);
   updateProjectionFx(instance, dt);
+  updateFocus(instance, dt);
 
   renderFrame(instance);
   instance.rafId = requestAnimationFrame((time) => tick(instance, time));
