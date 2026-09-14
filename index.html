@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Transmutación — Hero</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Poppins solo para el preview local. En Elementor el sitio ya la carga;
+      no hace falta este link en el widget.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="css/hero.css" />
     <!--
       Estilos de esta página de prueba. No forman parte del widget:
@@ -15,7 +25,7 @@
         margin: 0;
         background: #070707;
         color: #e6e6e6;
-        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-family: "Poppins", sans-serif;
         font-weight: 400;
         line-height: 1.5;
       }
@@ -43,7 +53,7 @@
       vuelve a renderizar el widget, no crea una segunda escena.
 
       En WordPress, sustituir las rutas de STILLS en js/hero.js por las URLs
-      absolutas de la mediateca.
+      absolutas de la mediateca. Poppins debe estar cargada por el tema/Elementor.
     -->
     <section
       class="tm-hero"
@@ -63,17 +73,23 @@
         <div class="tm-hero__grain" data-tm-grain aria-hidden="true"></div>
         <div class="tm-hero__vignette" aria-hidden="true"></div>
 
+        <!-- Metadata del still con foco (hover desktop / tap sticky). -->
+        <div class="tm-hero__caption" data-tm-caption aria-live="polite">
+          <a class="tm-hero__title" data-tm-title></a>
+          <p class="tm-hero__meta" data-tm-meta></p>
+        </div>
+
         <noscript>
           <div class="tm-hero__noscript">
             <img
               src="assets/stills/01-vli.webp"
-              alt="Still de proyección, caverna violeta y figura en barca"
+              alt="Once in a full moon"
               loading="lazy"
               decoding="async"
             />
             <img
               src="assets/stills/02-fep.webp"
-              alt="Still de proyección, retrato en blanco y negro"
+              alt="Cat on my mind"
               loading="lazy"
               decoding="async"
             />
@@ -81,18 +97,6 @@
         </noscript>
       </div>
     </section>
-
-    <main class="page">
-      <p>
-        El hero queda en el flujo de la página. El desplazamiento vertical de
-        esta prueba no debe quedar capturado por el componente.
-      </p>
-      <p>
-        Debajo del widget, el resto de Elementor —textos, botones, enlaces—
-        permanece operable. El lienzo no usa posición fija ni intercepta la rueda
-        ni el gesto de scroll.
-      </p>
-    </main>
 
     <script type="module" src="js/hero.js"></script>
   </body>
