@@ -5,6 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Transmutación — Hero</title>
     <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      Poppins solo para el preview local. En Elementor el sitio ya la carga;
+      no hace falta este link en el widget.
+    -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;700&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="css/hero.css" />
     <!--
       Estilos de esta página de prueba. No forman parte del widget:
@@ -15,7 +25,7 @@
         margin: 0;
         background: #070707;
         color: #e6e6e6;
-        font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+        font-family: "Poppins", sans-serif;
         font-weight: 400;
         line-height: 1.5;
       }
@@ -43,7 +53,7 @@
       vuelve a renderizar el widget, no crea una segunda escena.
 
       En WordPress, sustituir las rutas de STILLS en js/hero.js por las URLs
-      absolutas de la mediateca.
+      absolutas de la mediateca. Poppins debe estar cargada por el tema/Elementor.
     -->
     <section
       class="tm-hero"
@@ -51,19 +61,35 @@
       aria-label="Proyección cinematográfica, Transmutación Festival de Cine Contemporáneo"
     >
       <div class="tm-hero__stage">
-        <!-- El canvas WebGL se inserta aquí. Este bloque solo se muestra si WebGL no está disponible. -->
-        <div class="tm-hero__fallback"></div>
+        <!--
+          Contenedor de la proyección: recibe flicker y gate weave.
+          El canvas WebGL se inserta aquí.
+        -->
+        <div class="tm-hero__frame" data-tm-frame>
+          <div class="tm-hero__fallback"></div>
+        </div>
+
+        <!-- Capas 2D de proyección: grain + vignette. pointer-events: none. -->
+        <div class="tm-hero__grain" data-tm-grain aria-hidden="true"></div>
+        <div class="tm-hero__vignette" aria-hidden="true"></div>
+
+        <!-- Metadata pasiva: sync con el still centrado. Sin hover/tap. -->
+        <div class="tm-hero__caption" data-tm-caption aria-live="polite">
+          <p class="tm-hero__title" data-tm-title></p>
+          <p class="tm-hero__meta" data-tm-meta></p>
+        </div>
+
         <noscript>
           <div class="tm-hero__noscript">
             <img
-              src="assets/stills/01-umbral.svg"
-              alt="Umbral: fachada nocturna y una sola ventana encendida"
+              src="assets/stills/01-vli.webp"
+              alt="Once in a full moon"
               loading="lazy"
               decoding="async"
             />
             <img
-              src="assets/stills/02-deriva.svg"
-              alt="Deriva: horizonte de duna y sol bajo"
+              src="assets/stills/02-fep.webp"
+              alt="Cat on my mind"
               loading="lazy"
               decoding="async"
             />
