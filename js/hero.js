@@ -5,16 +5,26 @@
    + capa de proyección (haz volumétrico, polvo, grain, vignette, flicker,
    gate weave) + foco hover/tap (escala, dim, caption, link a ficha).
 
-   Sistema de coordenadas (unidades de mundo):
-   - El alto visible en el plano z = 0 es VISIBLE_HEIGHT.
-   - X crece a la derecha. Las imágenes viajan hacia −X.
-   - Z positivo se acerca a la cámara. Las diferencias son sutiles.
-   - La cámara mira al origen con un FOV estrecho (perspectiva ligera,
-     no gran angular).
+   Compact (max-width 640px): sin polvo, sin parallax, DPR 1. Los 6 planos
+   y sus Z se mantienen: aplanar no reduce draw calls.
 
-   En WordPress, sustituir STILLS[].src por URLs absolutas de la mediateca.
-   Las rutas relativas se resuelven respecto a este archivo.
+   En WordPress, sustituir ASSETS.stills por URLs absolutas de la mediateca.
+   Las rutas relativas se resuelven contra document.baseURI (la página).
    ============================================================================= */
+
+// --- Assets (WordPress: pegar aquí las URLs de la Mediateca) ----------------
+// El grain se genera en runtime (canvas). No hace falta un noise.webp.
+
+const ASSETS = {
+  stills: [
+    "assets/stills/01-vli.webp",
+    "assets/stills/02-fep.webp",
+    "assets/stills/03-pndr.jpg",
+    "assets/stills/04-chr.jpg",
+    "assets/stills/05-kb.jpg",
+    "assets/stills/06-tpos.jpg",
+  ],
+};
 
 // --- Configuración ----------------------------------------------------------
 
@@ -50,7 +60,7 @@ const PRELOAD_MARGIN = "240px 0px";
 
 const STILLS = [
   {
-    src: "../assets/stills/01-vli.webp",
+    src: ASSETS.stills[0],
     alt: "Once in a full moon",
     depth: -1.2,
     title: "Once in a full moon",
@@ -60,7 +70,7 @@ const STILLS = [
     href: "https://transmutacioncine.com/peliculas/once-in-a-full-moon/",
   },
   {
-    src: "../assets/stills/02-fep.webp",
+    src: ASSETS.stills[1],
     alt: "Cat on my mind",
     depth: -0.35,
     title: "Cat on my mind",
@@ -70,7 +80,7 @@ const STILLS = [
     href: "https://transmutacioncine.com/peliculas/cat-on-my-mind/",
   },
   {
-    src: "../assets/stills/03-pndr.jpg",
+    src: ASSETS.stills[2],
     alt: "Ponderosa",
     depth: 0.08,
     title: "Ponderosa",
@@ -80,7 +90,7 @@ const STILLS = [
     href: "https://transmutacioncine.com/peliculas/ponderosa/",
   },
   {
-    src: "../assets/stills/04-chr.jpg",
+    src: ASSETS.stills[3],
     alt: "Chronovisor",
     depth: 0.3,
     title: "Chronovisor",
@@ -90,7 +100,7 @@ const STILLS = [
     href: "https://transmutacioncine.com/peliculas/chronovisor/",
   },
   {
-    src: "../assets/stills/05-kb.jpg",
+    src: ASSETS.stills[4],
     alt: "Kobe",
     depth: -0.15,
     title: "Kobe",
@@ -100,7 +110,7 @@ const STILLS = [
     href: "https://transmutacioncine.com/peliculas/kobe/",
   },
   {
-    src: "../assets/stills/06-tpos.jpg",
+    src: ASSETS.stills[5],
     alt: "The price of the sun",
     depth: -0.75,
     title: "The price of the sun",
@@ -114,7 +124,7 @@ const STILLS = [
 const LAYOUT = {
   /** Alto del still respecto al alto visible. Deja margen negro arriba y abajo. */
   planeHeightRatio: 0.74,
-  /** En la banda 2.39:1 de mobile, más alto = stills más grandes. */
+  /** En teléfono (4:3), más alto = stills más grandes. */
   mobilePlaneHeightRatio: 0.92,
   /** ~2:1. Coincide con los covers cinematográficos (1024×516). */
   planeAspect: 1024 / 516,
@@ -156,19 +166,9 @@ const PROJECTION = {
   grainOpacity: 0.185,
   /** Veces por segundo que se reposiciona el grain. */
   grainHz: 8,
-  /** Partículas de polvo dentro del haz. */
+  /** Partículas de polvo. En compact se omiten (syncDust). */
   dustCount: 380,
 };
-
-/*
-  TEMPORAL — panel lil-gui para calibrar la proyección.
-  Quitar ENABLE_DEBUG_GUI y el bloque mountDebugGui antes de la versión final.
-*/
-const ENABLE_DEBUG_GUI = false;
-const LIL_GUI_URL = "https://cdn.jsdelivr.net/npm/lil-gui@0.19.2/+esm";
-const WEAVE_BASE = { x: 1.94, y: 1.6415, rot: 0.0597 };
-
-let debugGui = null;
 
 // --- Estado compartido del arranque -----------------------------------------
 
@@ -218,23 +218,27 @@ let elementorHooked = false;
 // --- Arranque ---------------------------------------------------------------
 
 function boot() {
-  const nodes = document.querySelectorAll("[data-tm-hero]:not([data-tm-ready])");
+  const scope = document.getElementById("transmutacion-cinema-hero") || document;
+  const nodes = scope.querySelectorAll("[data-tc-hero]:not([data-tc-ready])");
   nodes.forEach((root) => {
-    root.setAttribute("data-tm-ready", "");
+    root.setAttribute("data-tc-ready", "");
     mount(root);
   });
 }
 
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", boot);
-} else {
-  boot();
+function start() {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", boot, { once: true });
+  } else {
+    boot();
+  }
 }
+
+start();
 
 /*
   Elementor puede inyectar el widget después de DOMContentLoaded
-  (editor y, a veces, el front). El hook evita una segunda escena gracias
-  a data-tm-ready.
+  (editor y, a veces, el front). data-tc-ready evita una segunda escena.
 */
 window.addEventListener("elementor/frontend/init", hookElementor);
 hookElementor();
@@ -250,13 +254,13 @@ function hookElementor() {
 // --- Montaje de una instancia -----------------------------------------------
 
 function mount(root) {
-  const stage = root.querySelector(".tm-hero__stage");
-  const frame = root.querySelector("[data-tm-frame]") || stage;
-  const fallback = root.querySelector(".tm-hero__fallback");
-  const grain = root.querySelector("[data-tm-grain]");
-  const caption = root.querySelector("[data-tm-caption]");
-  const titleEl = root.querySelector("[data-tm-title]");
-  const metaEl = root.querySelector("[data-tm-meta]");
+  const stage = root.querySelector(".tc-hero__stage");
+  const frame = root.querySelector("[data-tc-frame]") || stage;
+  const fallback = root.querySelector(".tc-hero__fallback");
+  const grain = root.querySelector("[data-tc-grain]");
+  const caption = root.querySelector("[data-tc-caption]");
+  const titleEl = root.querySelector("[data-tc-title]");
+  const metaEl = root.querySelector("[data-tc-meta]");
   if (!stage || !fallback) return;
 
   const instance = {
@@ -372,7 +376,7 @@ function createScene(instance, THREE) {
   renderer.setClearColor(0x000000, 1);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.setPixelRatio(pixelRatio());
-  renderer.domElement.className = "tm-hero__canvas";
+  renderer.domElement.className = "tc-hero__canvas";
   renderer.domElement.setAttribute("aria-hidden", "true");
   frame.appendChild(renderer.domElement);
 
@@ -423,7 +427,6 @@ function createScene(instance, THREE) {
     applyProjectionFx(instance);
     instance.root.classList.add("is-ready");
     syncLoop(instance);
-    if (ENABLE_DEBUG_GUI) mountDebugGui(instance);
   });
 }
 
@@ -532,10 +535,19 @@ function loadImage(src) {
 }
 
 function resolveSrc(src) {
-  if (/^(https?:)?\/\//.test(src) || src.startsWith("data:") || src.startsWith("blob:")) {
+  if (
+    /^(https?:)?\/\//.test(src) ||
+    src.startsWith("data:") ||
+    src.startsWith("blob:") ||
+    src.startsWith("/")
+  ) {
     return src;
   }
-  return new URL(src, import.meta.url).href;
+  try {
+    return new URL(src, document.baseURI).href;
+  } catch (error) {
+    return src;
+  }
 }
 
 function rasterize(image) {
@@ -825,13 +837,6 @@ function applyGrainOpacity(instance) {
   instance.grain.style.opacity = String(PROJECTION.grainOpacity);
 }
 
-function applyWeaveAmount(amount) {
-  const scale = amount / WEAVE_BASE.x;
-  PROJECTION.weaveX = WEAVE_BASE.x * scale;
-  PROJECTION.weaveY = WEAVE_BASE.y * scale;
-  PROJECTION.weaveRot = WEAVE_BASE.rot * scale;
-}
-
 function syncDust(instance) {
   if (!instance.scene || !instance.THREE) return;
 
@@ -841,19 +846,6 @@ function syncDust(instance) {
   }
 
   if (instance.dust) return;
-  const dust = createDust(instance);
-  instance.scene.add(dust);
-  instance.dust = dust;
-}
-
-function rebuildDust(instance, count) {
-  if (!instance.scene || !instance.THREE) return;
-
-  const next = Math.max(0, Math.round(count));
-  PROJECTION.dustCount = next;
-  disposeDust(instance);
-  if (next === 0) return;
-
   const dust = createDust(instance);
   instance.scene.add(dust);
   instance.dust = dust;
@@ -870,100 +862,10 @@ function disposeDust(instance) {
   instance.dustGeometry = null;
 }
 
-// --- Debug GUI (TEMPORAL) ---------------------------------------------------
-
-async function mountDebugGui(instance) {
-  if (debugGui) return;
-
-  let GUI;
-  try {
-    ({ GUI } = await import(LIL_GUI_URL));
-  } catch (error) {
-    console.warn("[tm-hero] No se pudo cargar lil-gui", error);
-    return;
-  }
-
-  if (instance.disposed || debugGui) return;
-
-  const params = {
-    beamOpacity: PROJECTION.beamOpacity,
-    flickerRange: PROJECTION.flickerMin,
-    weaveAmount: PROJECTION.weaveX,
-    grainOpacity: PROJECTION.grainOpacity,
-    particleCount: PROJECTION.dustCount,
-  };
-
-  const gui = new GUI({ title: "Proyección (debug)" });
-  gui.domElement.style.zIndex = "9999";
-  debugGui = gui;
-
-  gui
-    .add(params, "beamOpacity", 0, 0.6, 0.005)
-    .name("beamOpacity")
-    .onChange((value) => {
-      PROJECTION.beamOpacity = value;
-      instances.forEach((item) => applyBeamOpacity(item));
-    });
-
-  gui
-    .add(params, "flickerRange", 0.85, 1, 0.001)
-    .name("flickerRange")
-    .onChange((value) => {
-      PROJECTION.flickerMin = Math.min(value, PROJECTION.flickerMax);
-    });
-
-  gui
-    .add(params, "weaveAmount", 0, 4, 0.01)
-    .name("weaveAmount")
-    .onChange((value) => {
-      applyWeaveAmount(value);
-    });
-
-  gui
-    .add(params, "grainOpacity", 0, 0.5, 0.005)
-    .name("grainOpacity")
-    .onChange((value) => {
-      PROJECTION.grainOpacity = value;
-      instances.forEach((item) => applyGrainOpacity(item));
-    });
-
-  gui
-    .add(params, "particleCount", 0, 400, 1)
-    .name("particleCount")
-    .onChange((value) => {
-      instances.forEach((item) => rebuildDust(item, value));
-    });
-
-  gui
-    .add(
-      {
-        reset() {
-          params.beamOpacity = 0.365;
-          params.flickerRange = 0.904;
-          params.weaveAmount = WEAVE_BASE.x;
-          params.grainOpacity = 0.185;
-          params.particleCount = 380;
-          PROJECTION.beamOpacity = params.beamOpacity;
-          PROJECTION.flickerMin = params.flickerRange;
-          applyWeaveAmount(params.weaveAmount);
-          PROJECTION.grainOpacity = params.grainOpacity;
-          instances.forEach((item) => {
-            applyBeamOpacity(item);
-            applyGrainOpacity(item);
-            rebuildDust(item, params.particleCount);
-          });
-          gui.controllers.forEach((controller) => controller.updateDisplay());
-        },
-      },
-      "reset"
-    )
-    .name("reset defaults");
-}
-
 // --- Pointer: parallax + foco hover/tap -------------------------------------
 
 function isTitleTarget(event) {
-  return Boolean(event.target && event.target.closest && event.target.closest("[data-tm-title]"));
+  return Boolean(event.target && event.target.closest && event.target.closest("[data-tc-title]"));
 }
 
 function recordPointer(instance, event) {
@@ -1435,21 +1337,28 @@ function showFallback(instance) {
   if (instance.disposed) return;
   stopLoop(instance);
 
-  if (!instance.fallback.childElementCount) {
-    const sources = STILLS.slice(0, 2);
-    sources.forEach((still) => {
-      const image = document.createElement("img");
-      image.alt = still.alt;
-      image.decoding = "async";
-      image.loading = "lazy";
-      image.src = resolveSrc(still.src);
-      instance.fallback.appendChild(image);
-    });
+  try {
+    if (instance.fallback && !instance.fallback.childElementCount) {
+      STILLS.slice(0, 2).forEach((still) => {
+        const image = document.createElement("img");
+        image.alt = still.alt || "";
+        image.decoding = "async";
+        image.loading = "lazy";
+        image.src = resolveSrc(still.src);
+        instance.fallback.appendChild(image);
+      });
+    }
+  } catch (error) {
+    /* Silencio: el recuadro negro del fallback basta. */
   }
 
   instance.root.classList.add("is-fallback");
   instance.root.classList.remove("is-ready");
-  dispose(instance);
+  try {
+    dispose(instance);
+  } catch (error) {
+    instance.disposed = true;
+  }
 }
 
 function dispose(instance) {
@@ -1488,9 +1397,4 @@ function dispose(instance) {
 
   instance.renderer?.dispose();
   instance.renderer?.domElement.remove();
-
-  if (debugGui && instances.size === 0) {
-    debugGui.destroy();
-    debugGui = null;
-  }
 }
