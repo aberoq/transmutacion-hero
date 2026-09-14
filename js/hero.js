@@ -47,32 +47,32 @@ const STILLS = [
   {
     src: "../assets/stills/01-umbral.svg",
     alt: "Umbral: fachada nocturna y una sola ventana encendida",
-    depth: -1.2,
+    depth: -0.42,
   },
   {
     src: "../assets/stills/02-deriva.svg",
     alt: "Deriva: horizonte de duna y sol bajo",
-    depth: -0.35,
+    depth: 0.3,
   },
   {
     src: "../assets/stills/03-interior.svg",
     alt: "Interior: vano de luz sobre un muro oscuro",
-    depth: 0.08,
+    depth: -0.16,
   },
   {
     src: "../assets/stills/04-orilla.svg",
     alt: "Orilla: dos campos de agua y cielo",
-    depth: 0.3,
+    depth: 0.48,
   },
   {
     src: "../assets/stills/05-volumen.svg",
     alt: "Volumen: plano de hormigón y un filo de luz",
-    depth: -0.15,
+    depth: -0.34,
   },
   {
     src: "../assets/stills/06-claridad.svg",
     alt: "Claridad: verticales disueltas en niebla",
-    depth: -0.75,
+    depth: 0.14,
   },
 ];
 
@@ -98,10 +98,7 @@ const instances = new Set();
 
 function onMotionPreferenceChange(event) {
   reducedMotion = event.matches;
-  instances.forEach((instance) => {
-    if (reducedMotion) resetParallax(instance);
-    syncLoop(instance);
-  });
+  instances.forEach((instance) => syncLoop(instance));
 }
 
 if (motionQuery.addEventListener) {
@@ -263,13 +260,10 @@ function createScene(instance, THREE) {
   instance.renderer = renderer;
   instance.planes = [];
   instance.slot = slot;
-  instance.cameraZ = cameraZ;
   instance.scroll = 0;
   instance.running = false;
   instance.rafId = 0;
   instance.lastTime = 0;
-  resetParallax(instance);
-  bindParallax(instance);
 
   resize(instance);
 
@@ -517,11 +511,10 @@ function tick(instance, now) {
   instance.lastTime = now;
   instance.scroll += LAYOUT.speed * dt;
   layoutPlanes(instance);
-  updateParallax(instance, dt);
 
   /*
     Punto de extensión. En iteraciones siguientes, antes del render:
-    polvo, grain, viñeta, flicker y gate weave.
+    parallax de mouse, polvo, grain, viñeta, flicker y gate weave.
   */
 
   renderFrame(instance);
@@ -530,106 +523,7 @@ function tick(instance, now) {
 
 function renderFrame(instance) {
   if (!instance.renderer || !instance.scene || !instance.camera) return;
-  applyCamera(instance);
   instance.renderer.render(instance.scene, instance.camera);
-}
-
-// --- Parallax de mouse ------------------------------------------------------
-
-function bindParallax(instance) {
-  const { stage } = instance;
-
-  const onPointerMove = (event) => {
-    if (instance.disposed || reducedMotion || event.pointerType !== "mouse") return;
-
-    const rect = stage.getBoundingClientRect();
-    if (rect.width < 2 || rect.height < 2) return;
-
-    const nx = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    const ny = ((event.clientY - rect.top) / rect.height) * 2 - 1;
-    const angles = pointerToAngles(
-      Math.max(-1, Math.min(1, nx)),
-      Math.max(-1, Math.min(1, ny))
-    );
-    instance.targetYaw = angles.yaw;
-    instance.targetPitch = angles.pitch;
-  };
-
-  const release = () => {
-    instance.targetYaw = 0;
-    instance.targetPitch = 0;
-  };
-
-  stage.addEventListener("pointermove", onPointerMove, { passive: true });
-  stage.addEventListener("pointerleave", release);
-  stage.addEventListener("pointercancel", release);
-
-  instance.unbindParallax = () => {
-    stage.removeEventListener("pointermove", onPointerMove);
-    stage.removeEventListener("pointerleave", release);
-    stage.removeEventListener("pointercancel", release);
-  };
-}
-
-/**
- * nx, ny en -1..1 dentro del escenario.
- * El vector resultante se recorta para que el ángulo total no pase de 1°.
- */
-function pointerToAngles(nx, ny) {
-  const max = (MAX_PARALLAX_DEG * Math.PI) / 180;
-  let yaw = nx * max;
-  let pitch = -ny * max;
-  const magnitude = Math.hypot(yaw, pitch);
-
-  if (magnitude > max) {
-    const scale = max / magnitude;
-    yaw *= scale;
-    pitch *= scale;
-  }
-
-  return { yaw, pitch };
-}
-
-function updateParallax(instance, dt) {
-  if (reducedMotion) {
-    resetParallax(instance);
-    return;
-  }
-
-  const blend = 1 - Math.exp(-PARALLAX_RESPONSE * dt);
-  instance.yaw += (instance.targetYaw - instance.yaw) * blend;
-  instance.pitch += (instance.targetPitch - instance.pitch) * blend;
-  clampParallax(instance);
-}
-
-function resetParallax(instance) {
-  instance.yaw = 0;
-  instance.pitch = 0;
-  instance.targetYaw = 0;
-  instance.targetPitch = 0;
-}
-
-function clampParallax(instance) {
-  const max = (MAX_PARALLAX_DEG * Math.PI) / 180;
-  const magnitude = Math.hypot(instance.yaw, instance.pitch);
-  if (magnitude <= max) return;
-  const scale = max / magnitude;
-  instance.yaw *= scale;
-  instance.pitch *= scale;
-}
-
-/**
- * En reposo mira al origen. El parallax desplaza el punto de mira,
- * no la posición: el encuadre no se descentra, solo se inclina.
- */
-function applyCamera(instance) {
-  const { camera, cameraZ } = instance;
-  if (!camera || cameraZ == null) return;
-
-  const yaw = instance.yaw || 0;
-  const pitch = instance.pitch || 0;
-  camera.position.set(0, 0, cameraZ);
-  camera.lookAt(Math.sin(yaw) * cameraZ, Math.sin(pitch) * cameraZ, 0);
 }
 
 // --- Fallback y soporte WebGL -----------------------------------------------
@@ -676,7 +570,6 @@ function dispose(instance) {
   if (instance.onVisibilityChange) {
     document.removeEventListener("visibilitychange", instance.onVisibilityChange);
   }
-  if (instance.unbindParallax) instance.unbindParallax();
 
   if (instance.planes) {
     instance.planes.forEach((mesh) => {
