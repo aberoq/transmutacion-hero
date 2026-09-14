@@ -43,6 +43,17 @@
   }
 }
 
+/* --- Frame de proyección ---------------------------------------------------
+   Contiene el canvas. El JS aplica flicker (opacity) y gate weave (transform).
+   -------------------------------------------------------------------------- */
+
+.tm-hero__frame {
+  position: absolute;
+  inset: 0;
+  will-change: transform, opacity;
+  transform-origin: 50% 50%;
+}
+
 /* --- Lienzo WebGL ----------------------------------------------------------
    Cubre el escenario, no la página. pointer-events: none deja el mouse en
    el padre y no tapa botones de Elementor superpuestos. No hay preventDefault.
@@ -63,6 +74,52 @@
   opacity: 1;
 }
 
+/* --- Film grain ------------------------------------------------------------
+   Overlay CSS. soft-light a ~0.12. El JS mueve background-position varias
+   veces por segundo. La textura se genera una vez en JS (data URL).
+   -------------------------------------------------------------------------- */
+
+.tm-hero__grain {
+  position: absolute;
+  inset: -18%;
+  z-index: 2;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: soft-light;
+  background-repeat: repeat;
+  background-size: 180px 180px;
+  will-change: background-position, opacity;
+}
+
+.tm-hero.is-ready .tm-hero__grain {
+  /* El valor vivo lo marca JS (PROJECTION.grainOpacity / debug GUI). */
+  opacity: 0.12;
+}
+
+/* --- Vignette --------------------------------------------------------------
+   Oscurece el perímetro. Muy suave: sugiere el borde de una proyección,
+   no un filtro Instagram.
+   -------------------------------------------------------------------------- */
+
+.tm-hero__vignette {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(
+      ellipse 72% 68% at 50% 48%,
+      rgba(0, 0, 0, 0) 42%,
+      rgba(0, 0, 0, 0.38) 100%
+    );
+  transition: opacity 900ms ease;
+}
+
+.tm-hero.is-ready .tm-hero__vignette {
+  opacity: 1;
+}
+
 /* --- Fallback estático -----------------------------------------------------
    Visible solo si no hay WebGL, si el contexto se pierde, o sin JavaScript.
    Sin animación: es un recorte fijo de los mismos stills.
@@ -79,11 +136,17 @@
   box-sizing: border-box;
   padding: 11% 4%;
   background: #000;
+  z-index: 1;
 }
 
 .tm-hero.is-fallback .tm-hero__fallback,
 .tm-hero__noscript {
   display: flex;
+}
+
+.tm-hero.is-fallback .tm-hero__grain,
+.tm-hero.is-fallback .tm-hero__vignette {
+  display: none;
 }
 
 .tm-hero__fallback img,
@@ -100,8 +163,14 @@
    La entrada no se anima. El JS, además, no arranca el bucle. */
 
 @media (prefers-reduced-motion: reduce) {
-  .tm-hero__canvas {
+  .tm-hero__canvas,
+  .tm-hero__vignette {
     transition: none;
+  }
+
+  .tm-hero__frame,
+  .tm-hero__grain {
+    will-change: auto;
   }
 }
 
@@ -119,5 +188,10 @@
   .tm-hero__noscript {
     gap: 4%;
     padding: 12% 5%;
+  }
+
+  /* En pantallas densas el grain a 0.12 puede verse gritoso; baja un poco. */
+  .tm-hero.is-ready .tm-hero__grain {
+    opacity: 0.1;
   }
 }

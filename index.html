@@ -51,19 +51,29 @@
       aria-label="Proyección cinematográfica, Transmutación Festival de Cine Contemporáneo"
     >
       <div class="tm-hero__stage">
-        <!-- El canvas WebGL se inserta aquí. Este bloque solo se muestra si WebGL no está disponible. -->
-        <div class="tm-hero__fallback"></div>
+        <!--
+          Contenedor de la proyección: recibe flicker y gate weave.
+          El canvas WebGL se inserta aquí.
+        -->
+        <div class="tm-hero__frame" data-tm-frame>
+          <div class="tm-hero__fallback"></div>
+        </div>
+
+        <!-- Capas 2D de proyección: grain + vignette. pointer-events: none. -->
+        <div class="tm-hero__grain" data-tm-grain aria-hidden="true"></div>
+        <div class="tm-hero__vignette" aria-hidden="true"></div>
+
         <noscript>
           <div class="tm-hero__noscript">
             <img
-              src="assets/stills/01-umbral.svg"
-              alt="Umbral: fachada nocturna y una sola ventana encendida"
+              src="assets/stills/01-vli.webp"
+              alt="Still de proyección, caverna violeta y figura en barca"
               loading="lazy"
               decoding="async"
             />
             <img
-              src="assets/stills/02-deriva.svg"
-              alt="Deriva: horizonte de duna y sol bajo"
+              src="assets/stills/02-fep.webp"
+              alt="Still de proyección, retrato en blanco y negro"
               loading="lazy"
               decoding="async"
             />

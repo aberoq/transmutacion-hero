@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000" role="img" aria-label="Volumen">
-  <rect width="1500" height="1000" fill="#1c201e"/>
-  <polygon points="0,0 980,0 760,1000 0,1000" fill="#8a8f88"/>
-  <polygon points="980,0 1040,0 820,1000 760,1000" fill="#e4e0d8"/>
-  <polygon points="1040,0 1500,0 1500,1000 820,1000" fill="#2a2e2c"/>
-  <rect x="180" y="220" width="280" height="18" fill="#2a2e2c" opacity="0.35"/>
-  <rect x="180" y="280" width="180" height="8" fill="#2a2e2c" opacity="0.22"/>
-  <rect x="1" y="1" width="1498" height="998" fill="none" stroke="#3a3e3c" stroke-width="2"/>
-</svg>
