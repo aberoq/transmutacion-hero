@@ -1,0 +1,123 @@
+/* =============================================================================
+   Transmutación Hero
+   Estilos del widget. Todo vive bajo .tm-hero para no filtrarse a Elementor.
+   ============================================================================= */
+
+/* --- Escenario -------------------------------------------------------------
+   Proporción cinematográfica 2.39:1. En viewports bajos, el ancho se reduce
+   para no romper la proporción. El bloque permanece en el flujo: no cubre
+   el resto de la página.
+   -------------------------------------------------------------------------- */
+
+.tm-hero {
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  background: #000;
+  color: #f2f2f2;
+}
+
+.tm-hero__stage {
+  position: relative;
+  width: min(100%, calc(86vh * 2.39));
+  max-height: 86vh;
+  margin-inline: auto;
+  aspect-ratio: 2.39 / 1;
+  background: #000;
+  overflow: hidden;
+  /*
+    El escenario recibe el mouse para inclinar la cámara. En táctil el JS
+    ignora el puntero. pan-y deja el scroll de página en manos del navegador.
+  */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@supports not (aspect-ratio: 1) {
+  .tm-hero__stage {
+    height: 0;
+    /* 1 / 2.39 */
+    padding-top: 41.841%;
+  }
+}
+
+/* --- Lienzo WebGL ----------------------------------------------------------
+   Cubre el escenario, no la página. pointer-events: none deja el mouse en
+   el padre y no tapa botones de Elementor superpuestos. No hay preventDefault.
+   -------------------------------------------------------------------------- */
+
+.tm-hero__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 900ms ease;
+}
+
+.tm-hero.is-ready .tm-hero__canvas {
+  opacity: 1;
+}
+
+/* --- Fallback estático -----------------------------------------------------
+   Visible solo si no hay WebGL, si el contexto se pierde, o sin JavaScript.
+   Sin animación: es un recorte fijo de los mismos stills.
+   -------------------------------------------------------------------------- */
+
+.tm-hero__fallback,
+.tm-hero__noscript {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: 3%;
+  box-sizing: border-box;
+  padding: 11% 4%;
+  background: #000;
+}
+
+.tm-hero.is-fallback .tm-hero__fallback,
+.tm-hero__noscript {
+  display: flex;
+}
+
+.tm-hero__fallback img,
+.tm-hero__noscript img {
+  display: block;
+  height: 100%;
+  width: auto;
+  max-width: 46%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* --- Movimiento reducido ---------------------------------------------------
+   La entrada no se anima. El JS, además, no arranca el bucle. */
+
+@media (prefers-reduced-motion: reduce) {
+  .tm-hero__canvas {
+    transition: none;
+  }
+}
+
+/* --- Mobile ----------------------------------------------------------------
+   Misma proporción. El padre a ancho completo produce una banda baja;
+   no se fuerza una altura que rompa 2.39:1. */
+
+@media (max-width: 640px) {
+  .tm-hero__stage {
+    width: 100%;
+    max-height: none;
+  }
+
+  .tm-hero__fallback,
+  .tm-hero__noscript {
+    gap: 4%;
+    padding: 12% 5%;
+  }
+}

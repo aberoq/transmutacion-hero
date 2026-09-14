@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1000" viewBox="0 0 1500 1000" role="img" aria-label="Interior">
+  <rect width="1500" height="1000" fill="#0c0b0a"/>
+  <rect x="0" y="0" width="420" height="1000" fill="#161411"/>
+  <rect x="1080" y="0" width="420" height="1000" fill="#141210"/>
+  <rect x="520" y="160" width="340" height="620" fill="#2a241c"/>
+  <polygon points="560,780 820,780 980,1000 400,1000" fill="#cbb89a" opacity="0.28"/>
+  <rect x="640" y="280" width="90" height="140" fill="#e6d3b4" opacity="0.22"/>
+  <rect x="0" y="780" width="1500" height="220" fill="#080807"/>
+  <rect x="1" y="1" width="1498" height="998" fill="none" stroke="#2c2824" stroke-width="2"/>
+</svg>
