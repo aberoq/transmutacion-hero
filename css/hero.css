@@ -254,13 +254,21 @@
 }
 
 /* --- Mobile ----------------------------------------------------------------
-   Misma proporción. El padre a ancho completo produce una banda baja;
-   no se fuerza una altura que rompa 2.39:1. */
+   Teléfono: encuadre 4:3 para que los stills se lean como pantallas.
+   iPad (>640px) conserva 2.39:1. */
 
 @media (max-width: 640px) {
   .tm-hero__stage {
     width: 100%;
-    max-height: none;
+    max-height: 86vh;
+    aspect-ratio: 4 / 3;
+  }
+
+  @supports not (aspect-ratio: 1) {
+    .tm-hero__stage {
+      height: 0;
+      padding-top: 75%;
+    }
   }
 
   .tm-hero__fallback,
