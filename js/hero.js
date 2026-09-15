@@ -7,6 +7,8 @@
 
    Compact (max-width 640px): sin polvo, sin parallax, DPR 1. Los 6 planos
    y sus Z se mantienen: aplanar no reduce draw calls.
+   Al foco (hover/tap) el strip frena, un wash suave alumbra el still,
+   y un haz secundario sigue el mouse en escritorio.
 
    En WordPress, sustituir ASSETS.stills por URLs absolutas de la mediateca.
    Las rutas relativas se resuelven contra document.baseURI (la página).
@@ -134,7 +136,9 @@ const LAYOUT = {
    * Unidades de mundo por segundo.
    * Con el encuadre actual, un still tarda unos 20 s en ceder su lugar al siguiente.
    */
-  speed: 0.62,
+  speed: 0.682,
+  /** Fracción de speed mientras hay foco (hover/tap). Lerp en tick. */
+  focusSpeedRatio: 0.22,
 };
 
 const FOCUS = {
@@ -150,8 +154,8 @@ const FOCUS = {
 
 const PROJECTION = {
   /** Opacity del haz primario / secundario (aditivo). */
-  beamOpacity: 0.365,
-  beamOpacitySecondaryRatio: 0.08 / 0.14,
+  beamOpacity: 0.78,
+  beamOpacitySecondaryRatio: 0.85,
   /** Opacity del frame: flicker entre estos extremos. */
   flickerMin: 0.904,
   flickerMax: 1,
@@ -167,7 +171,15 @@ const PROJECTION = {
   /** Veces por segundo que se reposiciona el grain. */
   grainHz: 8,
   /** Partículas de polvo. En compact se omiten (syncDust). */
-  dustCount: 380,
+  dustCount: 520,
+  dustSize: 0.095,
+  dustOpacity: 0.28,
+  /** Escala de los haces de esquina mientras hay foco. */
+  focusPunch: 1.6,
+  /** Glow suave sobre el still con foco (sweet spot). */
+  focusWashOpacity: 0.38,
+  /** Haz que sigue el mouse (escritorio). Más chico/brillante para leer el follow. */
+  pointerBeamOpacity: 0.78,
 };
 
 // --- Estado compartido del arranque -----------------------------------------
@@ -279,6 +291,8 @@ function mount(root) {
     pointerInside: false,
     pointerNdc: { x: 0, y: 0 },
     pointerDown: null,
+    speedScale: 1,
+    fxPunch: 1,
     disposed: false,
     started: false,
     visible: false,
@@ -323,6 +337,18 @@ function mount(root) {
   instance.onVisibilityChange = onVisibilityChange;
   document.addEventListener("visibilitychange", onVisibilityChange);
   instances.add(instance);
+
+  const rect = stage.getBoundingClientRect();
+  if (
+    rect.width > 2 &&
+    rect.height > 2 &&
+    rect.bottom > 0 &&
+    rect.top < (window.innerHeight || 0)
+  ) {
+    ensureExperience(instance);
+    instance.visible = true;
+    syncLoop(instance);
+  }
 }
 
 /**
@@ -670,26 +696,80 @@ function buildProjection(instance) {
   });
 
   /*
-    No es un cono de proyector: dos planos suaves, ligeramente inclinados,
-    que sugieren un haz atravesando el volumen entre cámara y stills.
+    Spill en las esquinas del encuadre: el blob vive en un rincón de la
+    textura. El plano B se voltea para el rincón opuesto.
   */
-  const beamGeometry = new THREE.PlaneGeometry(18, 11);
+  const beamGeometry = new THREE.PlaneGeometry(12, 9);
   const beamA = new THREE.Mesh(beamGeometry, beamMaterial);
-  beamA.position.set(-0.6, 0.35, 2.4);
-  beamA.rotation.set(-0.18, 0.42, -0.08);
+  beamA.position.set(-6.1, 3.35, 2.55);
+  beamA.rotation.set(-0.26, 0.58, -0.14);
+  beamA.userData.baseScale = { x: 1, y: 1 };
   scene.add(beamA);
 
   const beamB = new THREE.Mesh(beamGeometry, beamMaterial.clone());
   beamB.material.opacity =
     PROJECTION.beamOpacity * PROJECTION.beamOpacitySecondaryRatio;
-  beamB.position.set(0.4, -0.15, 1.2);
-  beamB.rotation.set(0.12, -0.28, 0.05);
+  beamB.position.set(6.2, -3.25, 1.35);
+  beamB.rotation.set(0.22, -0.52, 0.12);
+  beamB.scale.set(-1, -1, 1);
+  beamB.userData.baseScale = { x: -1, y: -1 };
   scene.add(beamB);
 
   instance.beamTexture = beamTexture;
   instance.beamGeometry = beamGeometry;
   instance.beamMaterials = [beamA.material, beamB.material];
   instance.beams = [beamA, beamB];
+
+  /*
+    Dos luces de foco:
+    - wash: glow suave sobre el still (sweet spot al hover/tap).
+    - pointerBeam: sigue el mouse en escritorio.
+  */
+  const washTexture = new THREE.CanvasTexture(createFocusWashCanvas());
+  washTexture.colorSpace = THREE.SRGBColorSpace;
+  washTexture.needsUpdate = true;
+  const washMaterial = new THREE.MeshBasicMaterial({
+    map: washTexture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const wash = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), washMaterial);
+  wash.visible = false;
+  scene.add(wash);
+  instance.focusWash = wash;
+  instance.focusWashTexture = washTexture;
+  instance.focusWashMaterial = washMaterial;
+  instance.focusWashGeometry = wash.geometry;
+
+  const pointerTexture = new THREE.CanvasTexture(createPointerBeamCanvas());
+  pointerTexture.colorSpace = THREE.SRGBColorSpace;
+  pointerTexture.needsUpdate = true;
+  const pointerMaterial = new THREE.MeshBasicMaterial({
+    map: pointerTexture,
+    transparent: true,
+    opacity: 0,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    toneMapped: false,
+  });
+  const pointerBeam = new THREE.Mesh(
+    new THREE.PlaneGeometry(1, 1),
+    pointerMaterial
+  );
+  pointerBeam.visible = false;
+  scene.add(pointerBeam);
+  instance.pointerBeam = pointerBeam;
+  instance.pointerBeamTexture = pointerTexture;
+  instance.pointerBeamMaterial = pointerMaterial;
+  instance.pointerBeamGeometry = pointerBeam.geometry;
+  instance.pointerBeamPos = { x: 0, y: 0 };
+  instance.pointerBeamOpacity = 0;
+
   syncDust(instance);
 }
 
@@ -701,27 +781,74 @@ function createBeamCanvas() {
   const ctx = canvas.getContext("2d");
 
   const radial = ctx.createRadialGradient(
-    size * 0.5,
-    size * 0.42,
+    size * 0.2,
+    size * 0.18,
     size * 0.02,
-    size * 0.5,
-    size * 0.5,
-    size * 0.52
+    size * 0.26,
+    size * 0.24,
+    size * 0.5
   );
-  radial.addColorStop(0, "rgba(255, 248, 236, 0.55)");
-  radial.addColorStop(0.35, "rgba(255, 240, 220, 0.16)");
+  radial.addColorStop(0, "rgba(255, 248, 236, 0.92)");
+  radial.addColorStop(0.28, "rgba(255, 240, 220, 0.4)");
   radial.addColorStop(1, "rgba(255, 240, 220, 0)");
   ctx.fillStyle = radial;
   ctx.fillRect(0, 0, size, size);
 
-  const falloff = ctx.createLinearGradient(0, 0, 0, size);
-  falloff.addColorStop(0, "rgba(0, 0, 0, 0.55)");
-  falloff.addColorStop(0.45, "rgba(0, 0, 0, 0)");
-  falloff.addColorStop(1, "rgba(0, 0, 0, 0.4)");
+  const falloff = ctx.createLinearGradient(0, 0, size, size);
+  falloff.addColorStop(0, "rgba(0, 0, 0, 0)");
+  falloff.addColorStop(0.55, "rgba(0, 0, 0, 0)");
+  falloff.addColorStop(1, "rgba(0, 0, 0, 0.85)");
   ctx.globalCompositeOperation = "destination-out";
   ctx.fillStyle = falloff;
   ctx.fillRect(0, 0, size, size);
 
+  return canvas;
+}
+
+function createFocusWashCanvas() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const radial = ctx.createRadialGradient(
+    size * 0.5,
+    size * 0.46,
+    size * 0.04,
+    size * 0.5,
+    size * 0.5,
+    size * 0.5
+  );
+  radial.addColorStop(0, "rgba(255, 248, 236, 0.7)");
+  radial.addColorStop(0.4, "rgba(255, 236, 214, 0.22)");
+  radial.addColorStop(1, "rgba(255, 236, 214, 0)");
+  ctx.fillStyle = radial;
+  ctx.fillRect(0, 0, size, size);
+  return canvas;
+}
+
+function createPointerBeamCanvas() {
+  const size = 256;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+
+  /* Blob compacto: se lee el follow sin tapar el wash del still. */
+  const radial = ctx.createRadialGradient(
+    size * 0.5,
+    size * 0.5,
+    size * 0.02,
+    size * 0.5,
+    size * 0.5,
+    size * 0.42
+  );
+  radial.addColorStop(0, "rgba(255, 248, 236, 0.95)");
+  radial.addColorStop(0.25, "rgba(255, 240, 220, 0.45)");
+  radial.addColorStop(0.65, "rgba(255, 236, 214, 0.12)");
+  radial.addColorStop(1, "rgba(255, 236, 214, 0)");
+  ctx.fillStyle = radial;
+  ctx.fillRect(0, 0, size, size);
   return canvas;
 }
 
@@ -741,9 +868,9 @@ function createDust(instance) {
 
   const material = new THREE.PointsMaterial({
     map: createDustSprite(THREE),
-    size: 0.085,
+    size: PROJECTION.dustSize,
     transparent: true,
-    opacity: 0.42,
+    opacity: PROJECTION.dustOpacity,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     sizeAttenuation: true,
@@ -761,10 +888,10 @@ function createDust(instance) {
 
 function seedDustParticle(positions, velocities, phases, index) {
   const i = index * 3;
-  /* Volumen alargado del haz: diagonal suave por el centro del encuadre. */
+  /* Volumen ancho hacia las esquinas del haz, no solo el centro. */
   const t = Math.random();
-  positions[i] = (Math.random() - 0.5) * 7.5 + t * 1.4;
-  positions[i + 1] = (Math.random() - 0.5) * 4.2 + 0.3 - t * 0.6;
+  positions[i] = (Math.random() - 0.5) * 9.5 + t * 1.6;
+  positions[i + 1] = (Math.random() - 0.5) * 5.5 + 0.2 - t * 0.7;
   positions[i + 2] = 0.4 + Math.random() * 4.6;
 
   velocities[i] = (Math.random() - 0.5) * 0.08;
@@ -810,14 +937,14 @@ function updateDust(instance, dt, now) {
     positions[p + 2] += velocities[p + 2] * dt;
 
     if (
-      positions[p + 1] > 3.2 ||
-      positions[p] < -5 ||
-      positions[p] > 5 ||
+      positions[p + 1] > 4.2 ||
+      positions[p] < -6.5 ||
+      positions[p] > 6.5 ||
       positions[p + 2] < 0.2 ||
       positions[p + 2] > 5.4
     ) {
       seedDustParticle(positions, velocities, phases, i);
-      positions[p + 1] = -2.4 + Math.random() * 0.6;
+      positions[p + 1] = -3.1 + Math.random() * 0.6;
     }
   }
 
@@ -826,10 +953,128 @@ function updateDust(instance, dt, now) {
 
 function applyBeamOpacity(instance) {
   if (!instance.beamMaterials) return;
-  const primary = PROJECTION.beamOpacity;
+  const punch = instance.fxPunch ?? 1;
+  const primary = Math.min(1, PROJECTION.beamOpacity + (punch - 1) * 0.4);
   const secondary = primary * PROJECTION.beamOpacitySecondaryRatio;
   instance.beamMaterials[0].opacity = primary;
   if (instance.beamMaterials[1]) instance.beamMaterials[1].opacity = secondary;
+
+  if (instance.beams) {
+    instance.beams.forEach((beam) => {
+      const base = beam.userData.baseScale || { x: 1, y: 1 };
+      beam.scale.set(base.x * punch, base.y * punch, 1);
+    });
+  }
+}
+
+function applyDustOpacity(instance) {
+  if (!instance.dustMaterial) return;
+  instance.dustMaterial.opacity = PROJECTION.dustOpacity;
+}
+
+function applyFocusWash(instance) {
+  const wash = instance.focusWash;
+  if (!wash || !instance.focusWashMaterial) return;
+
+  const punch = instance.fxPunch ?? 1;
+  const focus = instance.focusIndex;
+  const still = focus >= 0 && instance.planes ? instance.planes[focus] : null;
+  const amount = still
+    ? Math.max(
+        0,
+        Math.min(1, (punch - 1) / Math.max(0.01, PROJECTION.focusPunch - 1))
+      )
+    : 0;
+  const opacity = PROJECTION.focusWashOpacity * amount;
+  instance.focusWashMaterial.opacity = opacity;
+
+  if (!still || opacity <= 0.01) {
+    wash.visible = false;
+    return;
+  }
+
+  wash.visible = true;
+  wash.position.copy(still.position);
+  wash.position.z += 0.15;
+  wash.scale.set(
+    instance.planeWidth * 1.12 * still.scale.x,
+    instance.planeHeight * 1.18 * still.scale.y,
+    1
+  );
+}
+
+/**
+ * Haz que sigue el mouse. En móvil se ancla al still con foco sticky.
+ */
+function applyPointerBeam(instance, dt) {
+  const beam = instance.pointerBeam;
+  if (!beam || !instance.pointerBeamMaterial || !instance.camera) return;
+
+  applyCamera(instance);
+
+  const snap = reducedMotion || dt <= 0;
+  const blend = snap ? 1 : 1 - Math.exp(-FOCUS.response * dt);
+  /* El follow del mouse debe responder más rápido que el freno del strip. */
+  const followBlend = snap ? 1 : 1 - Math.exp(-18 * dt);
+
+  if (!instance.pointerBeamPos) instance.pointerBeamPos = { x: 0, y: 0 };
+
+  let targetOpacity = 0;
+  let targetX = instance.pointerBeamPos.x;
+  let targetY = instance.pointerBeamPos.y;
+  const z = 3.6;
+
+  if (instance.pointerInside && instance.hoverActive && !isCompact()) {
+    const world = ndcToWorldOnPlane(
+      instance,
+      instance.pointerNdc.x,
+      instance.pointerNdc.y,
+      z
+    );
+    if (world) {
+      targetX = world.x;
+      targetY = world.y;
+      targetOpacity = PROJECTION.pointerBeamOpacity;
+    }
+  } else if (instance.focusIndex >= 0 && instance.planes?.[instance.focusIndex]) {
+    const still = instance.planes[instance.focusIndex];
+    targetX = still.position.x;
+    targetY = still.position.y + instance.planeHeight * 0.08;
+    targetOpacity = PROJECTION.pointerBeamOpacity * 0.7;
+  }
+
+  instance.pointerBeamOpacity =
+    (instance.pointerBeamOpacity ?? 0) +
+    (targetOpacity - (instance.pointerBeamOpacity ?? 0)) * blend;
+  instance.pointerBeamPos.x += (targetX - instance.pointerBeamPos.x) * followBlend;
+  instance.pointerBeamPos.y += (targetY - instance.pointerBeamPos.y) * followBlend;
+
+  const opacity = instance.pointerBeamOpacity;
+  instance.pointerBeamMaterial.opacity = opacity;
+  if (opacity <= 0.01) {
+    beam.visible = false;
+    return;
+  }
+
+  beam.visible = true;
+  beam.position.set(instance.pointerBeamPos.x, instance.pointerBeamPos.y, z);
+  beam.rotation.set(0, 0, 0);
+  const size = Math.max(instance.planeWidth || 8, 8);
+  beam.scale.set(size * 0.62, size * 0.62, 1);
+}
+
+function ndcToWorldOnPlane(instance, ndcX, ndcY, planeZ) {
+  const camera = instance.camera;
+  if (!camera) return null;
+
+  const dist = Math.max(0.2, camera.position.z - planeZ);
+  const halfH = Math.tan((camera.fov * Math.PI) / 360) * dist;
+  const halfW = halfH * camera.aspect;
+  return {
+    x: camera.position.x + ndcX * halfW,
+    y: camera.position.y + ndcY * halfH,
+    z: planeZ,
+  };
 }
 
 function applyGrainOpacity(instance) {
@@ -849,6 +1094,7 @@ function syncDust(instance) {
   const dust = createDust(instance);
   instance.scene.add(dust);
   instance.dust = dust;
+  applyDustOpacity(instance);
 }
 
 function disposeDust(instance) {
@@ -1213,6 +1459,22 @@ function updateFocus(instance, dt) {
   }
 }
 
+function updateFocusMotion(instance, dt) {
+  const focused = instance.focusIndex >= 0;
+  const snap = reducedMotion || dt <= 0;
+  const blend = snap ? 1 : 1 - Math.exp(-FOCUS.response * dt);
+  const targetSpeed = focused ? LAYOUT.focusSpeedRatio : 1;
+  const targetPunch = focused ? PROJECTION.focusPunch : 1;
+  instance.speedScale =
+    (instance.speedScale ?? 1) + (targetSpeed - (instance.speedScale ?? 1)) * blend;
+  instance.fxPunch =
+    (instance.fxPunch ?? 1) + (targetPunch - (instance.fxPunch ?? 1)) * blend;
+  applyBeamOpacity(instance);
+  applyDustOpacity(instance);
+  applyFocusWash(instance);
+  applyPointerBeam(instance, dt);
+}
+
 function navigateStill(index, event) {
   const url = STILLS[index] && STILLS[index].href;
   if (!url) return;
@@ -1305,12 +1567,13 @@ function tick(instance, now) {
 
   const dt = Math.min((now - instance.lastTime) / 1000, 0.05);
   instance.lastTime = now;
-  instance.scroll += LAYOUT.speed * dt;
+  updateFocus(instance, dt);
+  updateFocusMotion(instance, dt);
+  instance.scroll += LAYOUT.speed * (instance.speedScale ?? 1) * dt;
   layoutPlanes(instance);
   updateParallax(instance, dt);
   updateDust(instance, dt, now);
   updateProjectionFx(instance, dt);
-  updateFocus(instance, dt);
 
   renderFrame(instance);
   instance.rafId = requestAnimationFrame((time) => tick(instance, time));
@@ -1393,6 +1656,24 @@ function dispose(instance) {
 
   if (instance.dust) {
     disposeDust(instance);
+  }
+
+  if (instance.focusWash) {
+    instance.scene?.remove(instance.focusWash);
+    instance.focusWashMaterial?.map?.dispose();
+    instance.focusWashMaterial?.dispose();
+    instance.focusWashGeometry?.dispose();
+    instance.focusWashTexture = null;
+    instance.focusWash = null;
+  }
+
+  if (instance.pointerBeam) {
+    instance.scene?.remove(instance.pointerBeam);
+    instance.pointerBeamMaterial?.map?.dispose();
+    instance.pointerBeamMaterial?.dispose();
+    instance.pointerBeamGeometry?.dispose();
+    instance.pointerBeamTexture = null;
+    instance.pointerBeam = null;
   }
 
   instance.renderer?.dispose();
