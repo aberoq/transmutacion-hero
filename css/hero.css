@@ -81,9 +81,9 @@
   opacity: 0;
   background:
     radial-gradient(
-      ellipse 72% 68% at 50% 48%,
-      rgba(0, 0, 0, 0) 42%,
-      rgba(0, 0, 0, 0.38) 100%
+      ellipse 80% 76% at 50% 48%,
+      rgba(0, 0, 0, 0) 28%,
+      rgba(0, 0, 0, 0.58) 100%
     );
   transition: opacity 900ms ease;
 }
