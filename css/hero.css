@@ -3,11 +3,72 @@
    Estilos del widget. Todo vive bajo #transmutacion-cinema-hero / .tc-hero.
    ============================================================================= */
 
+/* --- Wrapper: solape hacia el intro de Elementor ---------------------------- */
+
+#transmutacion-cinema-hero {
+  --tc-bleed: clamp(64px, 12vw, 120px);
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+}
+
+/* Atmósfera que tapa la costura intro↔hero (desktop y mobile). */
+#transmutacion-cinema-hero .tc-hero__bleed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--tc-bleed) * -1);
+  height: var(--tc-bleed);
+  z-index: 0;
+  pointer-events: none;
+  background: #000;
+  overflow: hidden;
+}
+
+#transmutacion-cinema-hero .tc-hero__bleed-grain {
+  position: absolute;
+  inset: -18%;
+  opacity: 0.185;
+  mix-blend-mode: soft-light;
+  background-repeat: repeat;
+  background-size: 180px 180px;
+  pointer-events: none;
+}
+
+/* Halo de página: sigue el mouse en intro + hero (solo desktop vía JS). */
+.tc-page-halo {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 320px;
+  height: 320px;
+  margin: -160px 0 0 -160px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(255, 248, 236, 0.55) 0%,
+    rgba(255, 236, 214, 0.18) 38%,
+    rgba(255, 236, 214, 0) 70%
+  );
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  transition: opacity 220ms ease;
+}
+
+.tc-page-halo.is-on {
+  opacity: 1;
+}
+
 /* --- Escenario -------------------------------------------------------------
    Desktop/iPad: 2.39:1. Teléfono (≤640px): 4:3.
    -------------------------------------------------------------------------- */
 
 #transmutacion-cinema-hero .tc-hero {
+  position: relative;
+  z-index: 1;
   width: 100%;
   margin: 0;
   padding: 0;

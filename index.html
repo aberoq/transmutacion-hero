@@ -31,6 +31,28 @@
   </head>
   <body>
     <!--
+      Intro de prueba (NO va a Elementor). Simula la sección negra de arriba
+      para verificar costura + halo de mouse en local.
+    -->
+    <section
+      class="elementor-section elementor-top-section"
+      data-element_type="section"
+      style="
+        box-sizing: border-box;
+        min-height: 280px;
+        padding: 72px 8% 96px;
+        background: #000;
+        color: #f2f2f2;
+      "
+    >
+      <h1 style="margin: 0 0 0.4rem; font-size: clamp(1.6rem, 4vw, 2.6rem); line-height: 1.1; text-transform: uppercase;">
+        Transmutación,<br />Festival de Cine Contemporáneo.
+      </h1>
+      <p style="margin: 0; opacity: 0.75; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.85rem;">
+        Décima edición, 1 al 6 de octubre
+      </p>
+    </section>
+    <!--
       Pegar en Elementor SOLO el bloque #transmutacion-cinema-hero
       (style + markup + script type="module").
       Sustituir ASSETS.stills al inicio del script por URLs de la mediateca.
@@ -42,11 +64,72 @@
    Estilos del widget. Todo vive bajo #transmutacion-cinema-hero / .tc-hero.
    ============================================================================= */
 
+/* --- Wrapper: solape hacia el intro de Elementor ---------------------------- */
+
+#transmutacion-cinema-hero {
+  --tc-bleed: clamp(64px, 12vw, 120px);
+  position: relative;
+  z-index: 2;
+  isolation: isolate;
+}
+
+/* Atmósfera que tapa la costura intro↔hero (desktop y mobile). */
+#transmutacion-cinema-hero .tc-hero__bleed {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: calc(var(--tc-bleed) * -1);
+  height: var(--tc-bleed);
+  z-index: 0;
+  pointer-events: none;
+  background: #000;
+  overflow: hidden;
+}
+
+#transmutacion-cinema-hero .tc-hero__bleed-grain {
+  position: absolute;
+  inset: -18%;
+  opacity: 0.185;
+  mix-blend-mode: soft-light;
+  background-repeat: repeat;
+  background-size: 180px 180px;
+  pointer-events: none;
+}
+
+/* Halo de página: sigue el mouse en intro + hero (solo desktop vía JS). */
+.tc-page-halo {
+  position: fixed;
+  left: 0;
+  top: 0;
+  width: 320px;
+  height: 320px;
+  margin: -160px 0 0 -160px;
+  z-index: 3;
+  pointer-events: none;
+  opacity: 0;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgba(255, 248, 236, 0.55) 0%,
+    rgba(255, 236, 214, 0.18) 38%,
+    rgba(255, 236, 214, 0) 70%
+  );
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+  transition: opacity 220ms ease;
+}
+
+.tc-page-halo.is-on {
+  opacity: 1;
+}
+
 /* --- Escenario -------------------------------------------------------------
    Desktop/iPad: 2.39:1. Teléfono (≤640px): 4:3.
    -------------------------------------------------------------------------- */
 
 #transmutacion-cinema-hero .tc-hero {
+  position: relative;
+  z-index: 1;
   width: 100%;
   margin: 0;
   padding: 0;
@@ -276,6 +359,9 @@
   }
 }
 </style>
+      <div class="tc-hero__bleed" aria-hidden="true">
+        <div class="tc-hero__bleed-grain" data-tc-bleed-grain></div>
+      </div>
       <section
         class="tc-hero"
         data-tc-hero
@@ -319,8 +405,8 @@
 
    Compact (max-width 640px): sin polvo, sin parallax, DPR 1. Los 6 planos
    y sus Z se mantienen: aplanar no reduce draw calls.
-   Al foco (hover/tap) el strip frena, un wash suave alumbra el still,
-   y un haz secundario sigue el mouse en escritorio.
+   Al foco (hover/tap) el strip frena y un wash suave alumbra el still.
+   En escritorio un halo CSS de página sigue el mouse en intro + hero.
 
    En WordPress, sustituir ASSETS.stills por URLs absolutas de la mediateca.
    Las rutas relativas se resuelven contra document.baseURI (la página).
@@ -490,8 +576,9 @@ const PROJECTION = {
   focusPunch: 1.6,
   /** Glow suave sobre el still con foco (sweet spot). */
   focusWashOpacity: 0.38,
-  /** Haz que sigue el mouse (escritorio). Más chico/brillante para leer el follow. */
-  pointerBeamOpacity: 0.78,
+  /** Halo CSS de página (desktop). */
+  pageHaloOpacity: 0.9,
+  pageHaloSize: 320,
 };
 
 // --- Estado compartido del arranque -----------------------------------------
@@ -587,12 +674,20 @@ function mount(root) {
   const metaEl = root.querySelector("[data-tc-meta]");
   if (!stage || !fallback) return;
 
+  const widget =
+    document.getElementById("transmutacion-cinema-hero") || root.parentElement;
+  const bleedGrain =
+    (widget && widget.querySelector("[data-tc-bleed-grain]")) ||
+    document.querySelector("[data-tc-bleed-grain]");
+
   const instance = {
     root,
+    widget,
     stage,
     frame,
     fallback,
     grain,
+    bleedGrain,
     caption,
     titleEl,
     metaEl,
@@ -611,9 +706,15 @@ function mount(root) {
     pageVisible: !document.hidden,
   };
 
+  const grainUrl = grainDataUrl();
   if (grain) {
-    grain.style.backgroundImage = `url("${grainDataUrl()}")`;
+    grain.style.backgroundImage = `url("${grainUrl}")`;
   }
+  if (bleedGrain) {
+    bleedGrain.style.backgroundImage = `url("${grainUrl}")`;
+  }
+
+  bindPageHalo(instance);
 
   const onVisibilityChange = () => {
     instance.pageVisible = !document.hidden;
@@ -1033,9 +1134,8 @@ function buildProjection(instance) {
   instance.beams = [beamA, beamB];
 
   /*
-    Dos luces de foco:
-    - wash: glow suave sobre el still (sweet spot al hover/tap).
-    - pointerBeam: sigue el mouse en escritorio.
+    Wash suave sobre el still con foco (sweet spot).
+    El follow del mouse vive en un halo CSS de página (bindPageHalo).
   */
   const washTexture = new THREE.CanvasTexture(createFocusWashCanvas());
   washTexture.colorSpace = THREE.SRGBColorSpace;
@@ -1056,31 +1156,6 @@ function buildProjection(instance) {
   instance.focusWashTexture = washTexture;
   instance.focusWashMaterial = washMaterial;
   instance.focusWashGeometry = wash.geometry;
-
-  const pointerTexture = new THREE.CanvasTexture(createPointerBeamCanvas());
-  pointerTexture.colorSpace = THREE.SRGBColorSpace;
-  pointerTexture.needsUpdate = true;
-  const pointerMaterial = new THREE.MeshBasicMaterial({
-    map: pointerTexture,
-    transparent: true,
-    opacity: 0,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  });
-  const pointerBeam = new THREE.Mesh(
-    new THREE.PlaneGeometry(1, 1),
-    pointerMaterial
-  );
-  pointerBeam.visible = false;
-  scene.add(pointerBeam);
-  instance.pointerBeam = pointerBeam;
-  instance.pointerBeamTexture = pointerTexture;
-  instance.pointerBeamMaterial = pointerMaterial;
-  instance.pointerBeamGeometry = pointerBeam.geometry;
-  instance.pointerBeamPos = { x: 0, y: 0 };
-  instance.pointerBeamOpacity = 0;
 
   syncDust(instance);
 }
@@ -1133,31 +1208,6 @@ function createFocusWashCanvas() {
   );
   radial.addColorStop(0, "rgba(255, 248, 236, 0.7)");
   radial.addColorStop(0.4, "rgba(255, 236, 214, 0.22)");
-  radial.addColorStop(1, "rgba(255, 236, 214, 0)");
-  ctx.fillStyle = radial;
-  ctx.fillRect(0, 0, size, size);
-  return canvas;
-}
-
-function createPointerBeamCanvas() {
-  const size = 256;
-  const canvas = document.createElement("canvas");
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext("2d");
-
-  /* Blob compacto: se lee el follow sin tapar el wash del still. */
-  const radial = ctx.createRadialGradient(
-    size * 0.5,
-    size * 0.5,
-    size * 0.02,
-    size * 0.5,
-    size * 0.5,
-    size * 0.42
-  );
-  radial.addColorStop(0, "rgba(255, 248, 236, 0.95)");
-  radial.addColorStop(0.25, "rgba(255, 240, 220, 0.45)");
-  radial.addColorStop(0.65, "rgba(255, 236, 214, 0.12)");
   radial.addColorStop(1, "rgba(255, 236, 214, 0)");
   ctx.fillStyle = radial;
   ctx.fillRect(0, 0, size, size);
@@ -1316,82 +1366,138 @@ function applyFocusWash(instance) {
 }
 
 /**
- * Haz que sigue el mouse. En móvil se ancla al still con foco sticky.
+ * Halo CSS fixed: sigue el mouse en el hero y en la sección Elementor
+ * inmediata anterior (intro). Solo desktop.
  */
-function applyPointerBeam(instance, dt) {
-  const beam = instance.pointerBeam;
-  if (!beam || !instance.pointerBeamMaterial || !instance.camera) return;
+function bindPageHalo(instance) {
+  if (instance.pageHaloBound) return;
+  instance.pageHaloBound = true;
 
-  applyCamera(instance);
+  const halo = document.createElement("div");
+  halo.className = "tc-page-halo";
+  halo.setAttribute("aria-hidden", "true");
+  const size = PROJECTION.pageHaloSize || 320;
+  halo.style.width = `${size}px`;
+  halo.style.height = `${size}px`;
+  halo.style.marginLeft = `${-size / 2}px`;
+  halo.style.marginTop = `${-size / 2}px`;
+  document.body.appendChild(halo);
+  instance.pageHalo = halo;
+  instance.pageHaloPos = { x: -9999, y: -9999 };
+  instance.pageHaloZones = resolveHaloZones(instance);
 
-  const snap = reducedMotion || dt <= 0;
-  const blend = snap ? 1 : 1 - Math.exp(-FOCUS.response * dt);
-  /* El follow del mouse debe responder más rápido que el freno del strip. */
-  const followBlend = snap ? 1 : 1 - Math.exp(-18 * dt);
-
-  if (!instance.pointerBeamPos) instance.pointerBeamPos = { x: 0, y: 0 };
-
-  let targetOpacity = 0;
-  let targetX = instance.pointerBeamPos.x;
-  let targetY = instance.pointerBeamPos.y;
-  const z = 3.6;
-
-  if (instance.pointerInside && instance.hoverActive && !isCompact()) {
-    const world = ndcToWorldOnPlane(
-      instance,
-      instance.pointerNdc.x,
-      instance.pointerNdc.y,
-      z
-    );
-    if (world) {
-      targetX = world.x;
-      targetY = world.y;
-      targetOpacity = PROJECTION.pointerBeamOpacity;
+  const onMove = (event) => {
+    if (instance.disposed || reducedMotion || isCompact()) {
+      setPageHaloActive(instance, false);
+      return;
     }
-  } else if (instance.focusIndex >= 0 && instance.planes?.[instance.focusIndex]) {
-    const still = instance.planes[instance.focusIndex];
-    targetX = still.position.x;
-    targetY = still.position.y + instance.planeHeight * 0.08;
-    targetOpacity = PROJECTION.pointerBeamOpacity * 0.7;
+    if (event.pointerType && event.pointerType !== "mouse") {
+      setPageHaloActive(instance, false);
+      return;
+    }
+
+    const x = event.clientX;
+    const y = event.clientY;
+    instance.pageHaloPos.x = x;
+    instance.pageHaloPos.y = y;
+    halo.style.transform = `translate3d(${x}px, ${y}px, 0)`;
+
+    const active = isPointInHaloZones(x, y, instance.pageHaloZones);
+    setPageHaloActive(instance, active);
+  };
+
+  const onLeave = () => setPageHaloActive(instance, false);
+
+  const onCompact = () => {
+    instance.pageHaloZones = resolveHaloZones(instance);
+    if (isCompact()) setPageHaloActive(instance, false);
+  };
+
+  window.addEventListener("pointermove", onMove, { passive: true });
+  window.addEventListener("blur", onLeave);
+  document.addEventListener("mouseleave", onLeave);
+  if (compactQuery.addEventListener) {
+    compactQuery.addEventListener("change", onCompact);
+  } else if (compactQuery.addListener) {
+    compactQuery.addListener(onCompact);
   }
 
-  instance.pointerBeamOpacity =
-    (instance.pointerBeamOpacity ?? 0) +
-    (targetOpacity - (instance.pointerBeamOpacity ?? 0)) * blend;
-  instance.pointerBeamPos.x += (targetX - instance.pointerBeamPos.x) * followBlend;
-  instance.pointerBeamPos.y += (targetY - instance.pointerBeamPos.y) * followBlend;
-
-  const opacity = instance.pointerBeamOpacity;
-  instance.pointerBeamMaterial.opacity = opacity;
-  if (opacity <= 0.01) {
-    beam.visible = false;
-    return;
-  }
-
-  beam.visible = true;
-  beam.position.set(instance.pointerBeamPos.x, instance.pointerBeamPos.y, z);
-  beam.rotation.set(0, 0, 0);
-  const size = Math.max(instance.planeWidth || 8, 8);
-  beam.scale.set(size * 0.62, size * 0.62, 1);
-}
-
-function ndcToWorldOnPlane(instance, ndcX, ndcY, planeZ) {
-  const camera = instance.camera;
-  if (!camera) return null;
-
-  const dist = Math.max(0.2, camera.position.z - planeZ);
-  const halfH = Math.tan((camera.fov * Math.PI) / 360) * dist;
-  const halfW = halfH * camera.aspect;
-  return {
-    x: camera.position.x + ndcX * halfW,
-    y: camera.position.y + ndcY * halfH,
-    z: planeZ,
+  instance.unbindPageHalo = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("blur", onLeave);
+    document.removeEventListener("mouseleave", onLeave);
+    if (compactQuery.removeEventListener) {
+      compactQuery.removeEventListener("change", onCompact);
+    } else if (compactQuery.removeListener) {
+      compactQuery.removeListener(onCompact);
+    }
+    setPageHaloActive(instance, false);
+    halo.remove();
+    instance.pageHalo = null;
+    instance.pageHaloBound = false;
+    instance.unbindPageHalo = null;
   };
 }
 
+function resolveHaloZones(instance) {
+  const zones = [];
+  const widget =
+    instance.widget ||
+    document.getElementById("transmutacion-cinema-hero") ||
+    instance.root;
+  if (widget) zones.push(widget);
+
+  let node = widget;
+  while (node && node !== document.body) {
+    const isSection =
+      node.classList?.contains("elementor-top-section") ||
+      node.classList?.contains("elementor-section") ||
+      node.getAttribute?.("data-element_type") === "section";
+    if (isSection) {
+      const prev = node.previousElementSibling;
+      if (prev) zones.push(prev);
+      break;
+    }
+    node = node.parentElement;
+  }
+
+  if (
+    zones.length === 1 &&
+    widget?.previousElementSibling &&
+    !zones.includes(widget.previousElementSibling)
+  ) {
+    zones.push(widget.previousElementSibling);
+  }
+
+  return zones;
+}
+
+function isPointInHaloZones(x, y, zones) {
+  if (!zones || !zones.length) return false;
+  for (let i = 0; i < zones.length; i += 1) {
+    const el = zones[i];
+    if (!el || !el.getBoundingClientRect) continue;
+    const r = el.getBoundingClientRect();
+    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return true;
+  }
+  return false;
+}
+
+function setPageHaloActive(instance, on) {
+  const halo = instance.pageHalo;
+  if (!halo) return;
+  const active = Boolean(on);
+  halo.classList.toggle("is-on", active);
+  halo.style.opacity = active ? String(PROJECTION.pageHaloOpacity ?? 0.9) : "0";
+}
+
 function applyGrainOpacity(instance) {
-  if (!instance.grain) return;
-  instance.grain.style.opacity = String(PROJECTION.grainOpacity);
+  if (instance.grain) {
+    instance.grain.style.opacity = String(PROJECTION.grainOpacity);
+  }
+  if (instance.bleedGrain) {
+    instance.bleedGrain.style.opacity = String(PROJECTION.grainOpacity);
+  }
 }
 
 function syncDust(instance) {
@@ -1784,7 +1890,6 @@ function updateFocusMotion(instance, dt) {
   applyBeamOpacity(instance);
   applyDustOpacity(instance);
   applyFocusWash(instance);
-  applyPointerBeam(instance, dt);
 }
 
 function navigateStill(index, event) {
@@ -1979,14 +2084,7 @@ function dispose(instance) {
     instance.focusWash = null;
   }
 
-  if (instance.pointerBeam) {
-    instance.scene?.remove(instance.pointerBeam);
-    instance.pointerBeamMaterial?.map?.dispose();
-    instance.pointerBeamMaterial?.dispose();
-    instance.pointerBeamGeometry?.dispose();
-    instance.pointerBeamTexture = null;
-    instance.pointerBeam = null;
-  }
+  if (instance.unbindPageHalo) instance.unbindPageHalo();
 
   instance.renderer?.dispose();
   instance.renderer?.domElement.remove();
