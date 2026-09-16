@@ -6,13 +6,14 @@
 /* --- Wrapper: solape hacia el intro de Elementor ---------------------------- */
 
 #transmutacion-cinema-hero {
-  --tc-bleed: clamp(64px, 12vw, 120px);
+  --tc-bleed: clamp(40px, 8vw, 72px);
   position: relative;
   z-index: 2;
   isolation: isolate;
 }
 
-/* Atmósfera que tapa la costura intro↔hero (desktop y mobile). */
+/* Atmósfera que tapa la costura intro↔hero (desktop y mobile).
+   Fade arriba → opaco abajo para no cubrir el copy del intro. */
 #transmutacion-cinema-hero .tc-hero__bleed {
   position: absolute;
   left: 0;
@@ -23,6 +24,20 @@
   pointer-events: none;
   background: #000;
   overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    #000 70%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    #000 70%,
+    #000 100%
+  );
 }
 
 #transmutacion-cinema-hero .tc-hero__bleed-grain {

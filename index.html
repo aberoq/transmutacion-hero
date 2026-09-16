@@ -67,13 +67,14 @@
 /* --- Wrapper: solape hacia el intro de Elementor ---------------------------- */
 
 #transmutacion-cinema-hero {
-  --tc-bleed: clamp(64px, 12vw, 120px);
+  --tc-bleed: clamp(40px, 8vw, 72px);
   position: relative;
   z-index: 2;
   isolation: isolate;
 }
 
-/* Atmósfera que tapa la costura intro↔hero (desktop y mobile). */
+/* Atmósfera que tapa la costura intro↔hero (desktop y mobile).
+   Fade arriba → opaco abajo para no cubrir el copy del intro. */
 #transmutacion-cinema-hero .tc-hero__bleed {
   position: absolute;
   left: 0;
@@ -84,6 +85,20 @@
   pointer-events: none;
   background: #000;
   overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    #000 70%,
+    #000 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    #000 70%,
+    #000 100%
+  );
 }
 
 #transmutacion-cinema-hero .tc-hero__bleed-grain {
@@ -551,9 +566,9 @@ const FOCUS = {
 };
 
 const PROJECTION = {
-  /** Opacity del haz primario / secundario (aditivo). */
-  beamOpacity: 0.78,
-  beamOpacitySecondaryRatio: 0.85,
+  /** Opacity del haz primario / secundario (aditivo), centrado. */
+  beamOpacity: 0.42,
+  beamOpacitySecondaryRatio: 0.55,
   /** Opacity del frame: flicker entre estos extremos. */
   flickerMin: 0.904,
   flickerMax: 1,
@@ -569,10 +584,10 @@ const PROJECTION = {
   /** Veces por segundo que se reposiciona el grain. */
   grainHz: 8,
   /** Partículas de polvo. En compact se omiten (syncDust). */
-  dustCount: 520,
-  dustSize: 0.095,
-  dustOpacity: 0.28,
-  /** Escala de los haces de esquina mientras hay foco. */
+  dustCount: 450,
+  dustSize: 0.11,
+  dustOpacity: 0.4,
+  /** Escala de los haces mientras hay foco. */
   focusPunch: 1.6,
   /** Glow suave sobre el still con foco (sweet spot). */
   focusWashOpacity: 0.38,
@@ -1109,23 +1124,22 @@ function buildProjection(instance) {
   });
 
   /*
-    Spill en las esquinas del encuadre: el blob vive en un rincón de la
-    textura. El plano B se voltea para el rincón opuesto.
+    Haz centrado entre cámara y stills (no en las esquinas del frame):
+    así no se corta en el overflow del stage.
   */
-  const beamGeometry = new THREE.PlaneGeometry(12, 9);
+  const beamGeometry = new THREE.PlaneGeometry(18, 11);
   const beamA = new THREE.Mesh(beamGeometry, beamMaterial);
-  beamA.position.set(-6.1, 3.35, 2.55);
-  beamA.rotation.set(-0.26, 0.58, -0.14);
+  beamA.position.set(-0.6, 0.35, 2.4);
+  beamA.rotation.set(-0.18, 0.42, -0.08);
   beamA.userData.baseScale = { x: 1, y: 1 };
   scene.add(beamA);
 
   const beamB = new THREE.Mesh(beamGeometry, beamMaterial.clone());
   beamB.material.opacity =
     PROJECTION.beamOpacity * PROJECTION.beamOpacitySecondaryRatio;
-  beamB.position.set(6.2, -3.25, 1.35);
-  beamB.rotation.set(0.22, -0.52, 0.12);
-  beamB.scale.set(-1, -1, 1);
-  beamB.userData.baseScale = { x: -1, y: -1 };
+  beamB.position.set(0.4, -0.15, 1.2);
+  beamB.rotation.set(0.12, -0.28, 0.05);
+  beamB.userData.baseScale = { x: 1, y: 1 };
   scene.add(beamB);
 
   instance.beamTexture = beamTexture;
@@ -1168,23 +1182,23 @@ function createBeamCanvas() {
   const ctx = canvas.getContext("2d");
 
   const radial = ctx.createRadialGradient(
-    size * 0.2,
-    size * 0.18,
+    size * 0.5,
+    size * 0.42,
     size * 0.02,
-    size * 0.26,
-    size * 0.24,
-    size * 0.5
+    size * 0.5,
+    size * 0.5,
+    size * 0.52
   );
-  radial.addColorStop(0, "rgba(255, 248, 236, 0.92)");
-  radial.addColorStop(0.28, "rgba(255, 240, 220, 0.4)");
+  radial.addColorStop(0, "rgba(255, 248, 236, 0.75)");
+  radial.addColorStop(0.35, "rgba(255, 240, 220, 0.22)");
   radial.addColorStop(1, "rgba(255, 240, 220, 0)");
   ctx.fillStyle = radial;
   ctx.fillRect(0, 0, size, size);
 
-  const falloff = ctx.createLinearGradient(0, 0, size, size);
-  falloff.addColorStop(0, "rgba(0, 0, 0, 0)");
-  falloff.addColorStop(0.55, "rgba(0, 0, 0, 0)");
-  falloff.addColorStop(1, "rgba(0, 0, 0, 0.85)");
+  const falloff = ctx.createLinearGradient(0, 0, 0, size);
+  falloff.addColorStop(0, "rgba(0, 0, 0, 0.55)");
+  falloff.addColorStop(0.45, "rgba(0, 0, 0, 0)");
+  falloff.addColorStop(1, "rgba(0, 0, 0, 0.4)");
   ctx.globalCompositeOperation = "destination-out";
   ctx.fillStyle = falloff;
   ctx.fillRect(0, 0, size, size);
